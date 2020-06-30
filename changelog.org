@@ -1,0 +1,41 @@
+#+TITLE: Link project changelog file
+#+AUTHOR: coin0
+#+EMAIL: coin_st@hotmail.com
+
+* Planned content
+  
+** DONE import golang stun/turn service code
+   Legacy code for RFC5766 and RFC5389
+** DONE finish STM32F1 example for 74hc595 segments display
+   Simple segment digit display to show working status for stm32 and its loads
+** DONE finish STM32F1 ref code for esp8266 station mode
+   WIFI module to connect AP so stm32 could get connected with public internet
+** TODO finish STM32F1 ref code for OV7725 or OV7060
+
+   VGA/QVGA bitmap sampling module to get data for video/picutre process
+* Issue track list
+
+** DONE template for a typical issue report                              :p3:
+*** WHAT
+    Summary of what this ticket is
+*** WHEN
+    <2020-06-30 二 09:30> insert date by c-u c-c .
+*** WHO
+    coin0
+*** WHY
+    Root cause or result of investigation
+*** HOW
+    Solution or further action to be taken
+   
+** TODO dev/ref/esp8266:USART3 DMA transmit does not work                :p1:
+*** WHAT
+    It seems serial transmition between esp01 and stm32 by DMA mode does not really work
+*** WHEN
+    <2020-06-29 一 21:10>
+*** WHO
+    coin0
+*** WHY
+    It is possible that esp01 bootup time is too short, AT command was not sent successfully
+*** HOW
+    Add 2000ms sleep time after AT+RST sent to esp01
+
