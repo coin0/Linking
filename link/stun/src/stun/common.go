@@ -240,7 +240,7 @@ func processStunMessage(req []byte, addr *address) []byte {
 		return nil
 	}
 
-//	msg.print("request") // request
+	msg.print("request") // request
 
 	msg, err = msg.process(addr)
 	if err != nil {
@@ -255,7 +255,7 @@ func processStunMessage(req []byte, addr *address) []byte {
 		return nil
 	}
 
-//	msg.print("response") // response
+	msg.print("response") // response
 
 	resp := msg.buffer()
 	return resp
@@ -411,4 +411,109 @@ func parseAttributeType(db uint16) string {
 	case STUN_ATTR_RESERVATION_TOKEN: return "RESERVATION-TOKEN"
 	}
 	return "RESERVED"
+}
+
+// -------------------------------------------------------------------------------------------------
+
+// TransmitTCP() and TransmitUDP() are used by stun clients
+
+func transmitTCP(r *address, data []byte) error {
+
+	return nil
+}
+
+func transmitUDP(r *address, data []byte) ([]byte, error) {
+
+	// dial UDP
+	raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", r.IP, r.Port))
+	if err != nil {
+		return nil, fmt.Errorf("resolve UDP: %s", err)
+	}
+	conn, err := net.DialUDP("udp", nil, raddr)
+	if err != nil {
+		return nil, fmt.Errorf("dial UDP: %s", err)
+	}
+
+	// close connection if it is done
+	defer conn.Close()
+
+	// send message to target server
+	_, err = conn.Write(data)
+	if err != nil {
+		return nil, fmt.Errorf("write UDP: %s", err)
+	}
+
+	// read message from server side
+	buf := make([]byte, DEFAULT_MTU)
+	nr, err := conn.Read(buf)
+	if err != nil {
+		return nil, fmt.Errorf("get response from udp://%s:%d: %s", r.IP, r.Port, err)
+	}
+
+	return buf[:nr], nil
+}
+
+// -------------------------------------------------------------------------------------------------
+
+type stunclient struct {
+	// server address
+	remote      *address
+}
+
+func (addr *address) String() string {
+
+	return fmt.Sprintf("%s://%s:%d",
+		func(p byte) string {
+			switch p {
+			case NET_TCP: return "tcp"
+			case NET_UDP: return "udp"
+			case NET_TLS: return "tls"
+			default: return "unknown"
+			}
+		}(addr.Proto), addr.IP, addr.Port)
+}
+
+func NewClient(ip string, port int, proto string) (*stunclient, error) {
+
+	return &stunclient{
+		remote: &address{
+			IP: net.ParseIP(ip),
+			Port: port,
+			Proto: func(p string) byte {
+				switch p {
+				case "tcp": return NET_TCP
+				case "udp": return NET_UDP
+				case "tls": return NET_TLS
+				default: return NET_UDP // default type
+				}
+			}(proto),
+		},
+	}, nil
+}
+
+func (cl *stunclient) Bind() (err error) {
+
+	// create request
+	msg, _ := newBindingRequest()
+	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
+
+	// byte buffer for response from server
+	resp := []byte{}
+
+	switch cl.remote.Proto {
+	case NET_TCP:
+	case NET_UDP: resp, err = transmitUDP(cl.remote, msg.buffer())
+	case NET_TLS:
+	}
+	if err != nil {
+		return fmt.Errorf("binding request: %s", err)
+	}
+
+	msg, err = getMessage(resp)
+	if err != nil {
+		return fmt.Errorf("binding response: %s", err)
+	}
+	msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+	return nil
 }

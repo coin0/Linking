@@ -11,8 +11,14 @@
 ** DONE finish STM32F1 ref code for esp8266 station mode
    WIFI module to connect AP so stm32 could get connected with public internet
 ** TODO finish STM32F1 ref code for OV7725 or OV7060
-
    VGA/QVGA bitmap sampling module to get data for video/picutre process
+** TODO STUN client sdk
+*** TODO Golang version <2020-06-30 二 10:19>
+    Should complete most of func and would be the prototype for C version sdk
+    <2020-07-01 三 10:53> binding request
+*** TODO C version
+    Make sure this version will keep the same interfaces with Golang version
+
 * Issue track list
 
 ** DONE template for a typical issue report                              :p3:
@@ -38,4 +44,4 @@
     It is possible that esp01 bootup time is too short, AT command was not sent successfully
 *** HOW
     Add 2000ms sleep time after AT+RST sent to esp01
-
+    <2020-07-01 三 10:54> To be verified
