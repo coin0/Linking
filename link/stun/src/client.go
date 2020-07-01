@@ -14,7 +14,11 @@ func main() {
 		fmt.Println("could not create client: %s", err)
 	}
 
-	client.Bind()
+	addr, err := client.Bind()
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Printf("[Binding] prflx=%s\n", addr)
 	
 	return
 }

@@ -86,15 +86,15 @@ func genTransactionID() []byte {
 	return id
 }
 
-func decodeXorAddr(val []byte) (*address, error) {
+func decodeXorAddr(attr *attribute) (*address, error) {
 
-	fm := val[1]
+	fm := attr.value[1]
 
-	xport := binary.BigEndian.Uint16(val[2:])
+	xport := binary.BigEndian.Uint16(attr.value[2:])
 	port := xport ^ (STUN_MSG_MAGIC_COOKIE >> 16)
 
 	if fm == 0x01 {
-		xip := binary.BigEndian.Uint32(val[4:])
+		xip := binary.BigEndian.Uint32(attr.value[4:])
 		ip := xip ^ STUN_MSG_MAGIC_COOKIE
 		bytes := make([]byte, 4)
 		binary.BigEndian.PutUint32(bytes[0:], ip)
@@ -290,9 +290,13 @@ func newBindingRequest() (*message, error) {
 	return msg, nil
 }
 
-func (this *message) getAttrXorAddr(attr *attribute) (addr *address, err error) {
+func (this *message) getAttrXorAddr() (addr *address, err error) {
 
-	return decodeXorAddr(attr.value)
+	attr := this.findAttr(STUN_ATTR_XOR_MAPPED_ADDR)
+	if attr == nil {
+		return nil, fmt.Errorf("XOR mapped address not found")
+	}
+	return decodeXorAddr(attr)
 }
 
 func (this *message) getAttrRealm() (string, error) {
@@ -540,7 +544,7 @@ func (this *message) print(title string) {
 	// show extra info like decoded xor addresses
 	showExtra := func(attr *attribute) string {
 		if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR {
-			addr, err := decodeXorAddr(attr.value)
+			addr, err := decodeXorAddr(attr)
 			if err != nil {
 				return fmt.Sprintf("(%v)", err)
 			}

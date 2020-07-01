@@ -491,7 +491,7 @@ func NewClient(ip string, port int, proto string) (*stunclient, error) {
 	}, nil
 }
 
-func (cl *stunclient) Bind() (err error) {
+func (cl *stunclient) Bind() (addr *address, err error) {
 
 	// create request
 	msg, _ := newBindingRequest()
@@ -506,14 +506,17 @@ func (cl *stunclient) Bind() (err error) {
 	case NET_TLS:
 	}
 	if err != nil {
-		return fmt.Errorf("binding request: %s", err)
+		return nil, fmt.Errorf("binding request: %s", err)
 	}
 
 	msg, err = getMessage(resp)
 	if err != nil {
-		return fmt.Errorf("binding response: %s", err)
+		return nil, fmt.Errorf("binding response: %s", err)
 	}
 	msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
 
-	return nil
+	// return prflx IP address
+	addr, err = msg.getAttrXorAddr()
+	addr.Proto = cl.remote.Proto
+	return
 }

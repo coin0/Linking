@@ -484,7 +484,7 @@ func (this *message) getAttrXorPeerAddress() (*address, error) {
 		return nil, fmt.Errorf("not found")
 	}
 
-	return this.getAttrXorAddr(attr)
+	return decodeXorAddr(attr)
 }
 
 func (this *message) getAttrReservToken() ([]byte, error) {
@@ -518,7 +518,7 @@ func (this *message) getAttrXorPeerAddresses() ([]*address, error) {
 	}
 
 	for _, attr := range list {
-		addr, err := this.getAttrXorAddr(attr)
+		addr, err := decodeXorAddr(attr)
 		if err != nil {
 			return nil, fmt.Errorf("value invalid: %s", err)
 		}
