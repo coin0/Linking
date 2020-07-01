@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"crypto/md5"
 )
 
 const (
@@ -415,11 +416,37 @@ func parseAttributeType(db uint16) string {
 
 // -------------------------------------------------------------------------------------------------
 
-// TransmitTCP() and TransmitUDP() are used by stun clients
+func (addr *address) String() string {
 
-func transmitTCP(r *address, data []byte) error {
+	return fmt.Sprintf("%s://%s:%d",
+		func(p byte) string {
+			switch p {
+			case NET_TCP: return "tcp"
+			case NET_UDP: return "udp"
+			case NET_TLS: return "tls"
+			default: return "unknown"
+			}
+		}(addr.Proto), addr.IP, addr.Port)
+}
 
-	return nil
+// -------------------------------------------------------------------------------------------------
+
+// TransmitXXX() TransmitTCP() and TransmitUDP() are used by stun clients
+
+func transmit(r *address, data []byte) ([]byte, error) {
+
+	switch r.Proto {
+	case NET_TCP:
+	case NET_UDP: return transmitUDP(r, data)
+	case NET_TLS:
+	}
+
+	return nil, fmt.Errorf("unsupported protocol")
+}
+
+func transmitTCP(r *address, data []byte) ([]byte, error) {
+
+	return nil, nil
 }
 
 func transmitUDP(r *address, data []byte) ([]byte, error) {
@@ -456,21 +483,33 @@ func transmitUDP(r *address, data []byte) ([]byte, error) {
 // -------------------------------------------------------------------------------------------------
 
 type stunclient struct {
+	// long-term credential
+	Username    string
+	Password    string
+
+	// realm
+	realm       string
+
+	// nonce
+	nonce       string
+
 	// server address
 	remote      *address
-}
 
-func (addr *address) String() string {
+	// relayed address
+	relay       *address
 
-	return fmt.Sprintf("%s://%s:%d",
-		func(p byte) string {
-			switch p {
-			case NET_TCP: return "tcp"
-			case NET_UDP: return "udp"
-			case NET_TLS: return "tls"
-			default: return "unknown"
-			}
-		}(addr.Proto), addr.IP, addr.Port)
+	// alloc lifetime
+	Lifetime    uint32
+
+	// DONT-FRAGMENT
+	NoFragment  bool
+
+	// EVEN-PORT
+	EvenPort    bool
+
+	// 8-byte reservation token
+	ReservToken []byte
 }
 
 func NewClient(ip string, port int, proto string) (*stunclient, error) {
@@ -496,15 +535,7 @@ func (cl *stunclient) Bind() (addr *address, err error) {
 	// create request
 	msg, _ := newBindingRequest()
 	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
-
-	// byte buffer for response from server
-	resp := []byte{}
-
-	switch cl.remote.Proto {
-	case NET_TCP:
-	case NET_UDP: resp, err = transmitUDP(cl.remote, msg.buffer())
-	case NET_TLS:
-	}
+	resp, err := transmit(cl.remote, msg.buffer())
 	if err != nil {
 		return nil, fmt.Errorf("binding request: %s", err)
 	}
@@ -515,8 +546,98 @@ func (cl *stunclient) Bind() (addr *address, err error) {
 	}
 	msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
 
-	// return prflx IP address
-	addr, err = msg.getAttrXorAddr()
+	// return srflx IP address
+	addr, err = msg.getAttrXorMappedAddr()
 	addr.Proto = cl.remote.Proto
 	return
+}
+
+func (cl *stunclient) Alloc() error {
+
+	// create initial alloc request
+	req, _ := newInitAllocationRequest()
+	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+	buf, err := transmit(cl.remote, req.buffer())
+	if err != nil {
+		return fmt.Errorf("alloc request: %s", err)
+	}
+
+	// get response from server and return relayed IP address
+	resp, err := getMessage(buf)
+	if err != nil {
+		return fmt.Errorf("alloc response: %s", err)
+	}
+	resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+	// 401 failure on the first alloc request is expected behavior
+	code, errStr, err := resp.getAttrErrorCode()
+	if err != nil {
+		return fmt.Errorf("alloc response: %s", err)
+	}
+	if code != 401 {
+		return fmt.Errorf("alloc response: %d:%s", code, errStr)
+	}
+
+	// get REALM and NONCE
+	cl.realm, err = resp.getAttrRealm()
+	if err != nil {
+		return fmt.Errorf("alloc response: get realm: %s", err)
+	}
+	cl.nonce, err = resp.getAttrNonce()
+	if err != nil {
+		return fmt.Errorf("alloc response: nonce: %s", err)
+	}
+
+	// subsequent request
+	req, _ = newSubAllocationRequest(cl.Username, cl.realm, cl.nonce)
+	if cl.Lifetime != 0 {
+		req.length += req.addAttrLifetime(cl.Lifetime)
+	}
+	if cl.NoFragment {
+		// TODO NO-FRAGMENT
+	}
+	if cl.EvenPort {
+		// TODO EVEN-PORT
+	}
+	if cl.ReservToken != nil {
+		// TODO RESERVATION-TOKEN
+	}
+	// for long-term credentials, key = MD5(username ":" realm ":" SASLprep(password))
+	// https://tools.ietf.org/html/rfc5389#section-15.4
+	key := md5.Sum([]byte(cl.Username + ":" + cl.realm + ":" + cl.Password))
+	req.length += req.addAttrMsgIntegrity(string(key[0:16]))
+
+	// send subsequent request to server
+	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+	buf, err = transmit(cl.remote, req.buffer())
+	if err != nil {
+		return fmt.Errorf("alloc request: %s", err)
+	}
+
+	// get response from server and return relayed IP address
+	resp, err = getMessage(buf)
+	if err != nil {
+		return fmt.Errorf("alloc response: %s", err)
+	}
+	resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+	// get response status
+	code, errStr, err = resp.getAttrErrorCode()
+	if err != nil {
+		return fmt.Errorf("server returned error %d:%s", code, errStr)
+	}
+
+	// get relayed address
+	cl.relay, err = resp.getAttrXorRelayedAddr()
+	if err != nil {
+		return fmt.Errorf("alloc response: missing relayed address")
+	}
+
+	// adjust lifetime
+	cl.Lifetime, err = resp.getAttrLifetime()
+	if err != nil {
+		return fmt.Errorf("alloc response: no lifetime")
+	}
+
+	return nil
 }

@@ -16,6 +16,7 @@
 *** TODO Golang version <2020-06-30 二 10:19>
     Should complete most of func and would be the prototype for C version sdk
     <2020-07-01 三 10:53> binding request
+    <2020-07-01 三 18:43> alloc request
 *** TODO C version
     Make sure this version will keep the same interfaces with Golang version
 
