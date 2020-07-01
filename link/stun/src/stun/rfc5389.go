@@ -115,6 +115,24 @@ func decodeXorAddr(attr *attribute) (*address, error) {
 	}
 }
 
+func decodeErrorCode(attr *attribute) (code int, errStr string, err error) {
+
+	if attr.typevalue != STUN_ATTR_ERROR_CODE {
+		return 0, "", fmt.Errorf("not an ERROR-CODE attribute")
+	}
+
+	// Class * 100 + Number = code (https://tools.ietf.org/html/rfc5389#section-15.6)
+	code = int(attr.value[2]) * 100 + int(attr.value[3])
+	errStr = string(attr.value[4:])
+
+	return code, errStr, nil
+}
+
+func decodeStringValue(attr *attribute) string {
+
+	return string(attr.value[0:attr.length])
+}
+
 // -------------------------------------------------------------------------------------------------
 
 func (this *message) buffer() []byte {
@@ -290,13 +308,23 @@ func newBindingRequest() (*message, error) {
 	return msg, nil
 }
 
-func (this *message) getAttrXorAddr() (addr *address, err error) {
+func (this *message) getAttrXorMappedAddr() (addr *address, err error) {
 
 	attr := this.findAttr(STUN_ATTR_XOR_MAPPED_ADDR)
 	if attr == nil {
 		return nil, fmt.Errorf("XOR mapped address not found")
 	}
 	return decodeXorAddr(attr)
+}
+
+func (this *message) getAttrErrorCode() (code int, errStr string, err error) {
+
+	attr := this.findAttr(STUN_ATTR_ERROR_CODE)
+	if attr == nil {
+		return 0, "", fmt.Errorf("ERROR-CODE not found")
+	}
+
+	return decodeErrorCode(attr)
 }
 
 func (this *message) getAttrRealm() (string, error) {
@@ -326,7 +354,7 @@ func (this *message) getAttrStringValue(typevalue uint16, typename string) (stri
 		return "", fmt.Errorf("%s not found", typename)
 	}
 
-	return string(attr.value[0:attr.length]), nil
+	return decodeStringValue(attr), nil
 }
 
 func (this *message) addAttrXorAddr(r *address, typeval uint16) int {
@@ -404,6 +432,32 @@ func (this *message) addAttrRealm(realm string) int {
 
 	attr.value = make([]byte, total)
 	copy(attr.value[0:], []byte(realm))
+
+	this.attributes = append(this.attributes, attr)
+	return 4 + len(attr.value)
+}
+
+func (this *message) addAttrUsername(username string) int {
+
+	attr := &attribute{}
+	attr.typevalue = STUN_ATTR_USERNAME
+	attr.typename = parseAttributeType(attr.typevalue)
+
+	// username should be less than 513 (<=512) bytes
+	// https://tools.ietf.org/html/rfc5389#section-15.3
+	if len(username) > 513 {
+		username = username[0:513]
+	}
+	attr.length = len(username)
+
+	// paddings
+	total := attr.length
+	if total % 4 != 0 {
+		total += 4 - total % 4
+	}
+
+	attr.value = make([]byte, total)
+	copy(attr.value[0:], []byte(username))
 
 	this.attributes = append(this.attributes, attr)
 	return 4 + len(attr.value)
@@ -543,12 +597,24 @@ func (this *message) print(title string) {
 
 	// show extra info like decoded xor addresses
 	showExtra := func(attr *attribute) string {
-		if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR {
+		if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR ||
+			attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR {
 			addr, err := decodeXorAddr(attr)
 			if err != nil {
 				return fmt.Sprintf("(%v)", err)
 			}
 			return fmt.Sprintf("(%s:%d)", addr.IP, addr.Port)
+		} else if attr.typevalue == STUN_ATTR_ERROR_CODE {
+			code, errStr, err := decodeErrorCode(attr)
+			if err != nil {
+				return fmt.Sprintf("(%v)", err)
+			}
+			return fmt.Sprintf("(status=%d, %s)", code, errStr)
+		} else if attr.typevalue == STUN_ATTR_NONCE || attr.typevalue == STUN_ATTR_REALM ||
+			attr.typevalue == STUN_ATTR_USERNAME {
+			return fmt.Sprintf("(%s)", decodeStringValue(attr))
+		} else if attr.typevalue == STUN_ATTR_LIFETIME {
+			return fmt.Sprintf("(%d seconds)", binary.BigEndian.Uint32(attr.value))
 		} else {
 			return ""
 		}

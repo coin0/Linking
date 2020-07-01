@@ -62,6 +62,10 @@ const (
 	STUN_ERR_INSUFFICIENT_CAP    = 508
 )
 
+const (
+	PROTO_NUM_UDP                = 17
+)
+
 type turnpool struct {
 	// allocation struct map
 	table      map[string]*allocation
@@ -359,7 +363,7 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 
 	// 4. TODO handle DONT-FRAGMENT attribute
 
-	// 5. get reservation token
+	// 5. TODO get reservation token
 	alloc.token, err = this.getAttrReservToken()
 	if err == nil {
 		return this.newErrorMessage(STUN_ERR_INSUFFICIENT_CAP, "RESERVATION-TOKEN is not supported"), nil
@@ -391,6 +395,28 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 		return this.newErrorMessage(STUN_ERR_SERVER_ERROR, "alloc failed: " + err.Error()), nil
 	}
 	return this.replyAllocationRequest(alloc)
+}
+
+func newInitAllocationRequest() (*message, error) {
+
+	msg := &message{}
+	msg.method = STUN_MSG_METHOD_ALLOCATE
+	msg.encoding = STUN_MSG_REQUEST
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+	msg.transactionID = append(msg.transactionID, genTransactionID()...)
+	msg.length += msg.addAttrRequestedTran()
+
+	return msg, nil
+}
+
+func newSubAllocationRequest(username, realm, nonce string) (*message, error) {
+
+	msg, _ := newInitAllocationRequest()
+	msg.length += msg.addAttrUsername(username)
+	msg.length += msg.addAttrRealm(realm)
+	msg.length += msg.addAttrNonce(nonce)
+
+	return msg, nil // this is not done yet, need optional attrs + integrity attr
 }
 
 func (this *message) checkAllocation() error {
@@ -446,6 +472,18 @@ func (this *message) addAttrLifetime(t uint32) int {
 	return 8 // fixed 4 bytes
 }
 
+func (this *message) addAttrRequestedTran() int {
+
+	attr := &attribute{}
+	attr.typevalue = STUN_ATTR_REQUESTED_TRAN
+	attr.typename = parseAttributeType(attr.typevalue)
+	attr.length = 4
+	attr.value = []byte{PROTO_NUM_UDP, 0, 0, 0}
+
+	this.attributes = append(this.attributes, attr)
+	return 8 // 4 + 4
+}
+
 func (this *message) getAttrData() ([]byte, error) {
 
 	attr := this.findAttr(STUN_ATTR_DATA)
@@ -480,6 +518,16 @@ func (this *message) getAttrChanNumber() (uint16, error) {
 func (this *message) getAttrXorPeerAddress() (*address, error) {
 
 	attr := this.findAttr(STUN_ATTR_XOR_PEER_ADDR)
+	if attr == nil {
+		return nil, fmt.Errorf("not found")
+	}
+
+	return decodeXorAddr(attr)
+}
+
+func (this *message) getAttrXorRelayedAddr() (*address, error) {
+
+	attr := this.findAttr(STUN_ATTR_XOR_RELAYED_ADDR)
 	if attr == nil {
 		return nil, fmt.Errorf("not found")
 	}

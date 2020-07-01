@@ -14,11 +14,21 @@ func main() {
 		fmt.Println("could not create client: %s", err)
 	}
 
-	addr, err := client.Bind()
+	// binding request
+	srflx, err := client.Bind()
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Printf("[Binding] prflx=%s\n", addr)
-	
+	fmt.Printf("[Binding] srflx=%s\n", srflx)
+
+	// alloc request
+	client.Username = "root"
+	client.Password = "aaa"
+	client.Lifetime = 500
+	client.NoFragment = true
+	client.EvenPort = true
+	client.ReservToken = make([]byte, 8)
+	client.Alloc()
+
 	return
 }
