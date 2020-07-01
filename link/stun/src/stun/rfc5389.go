@@ -3,6 +3,8 @@ package stun
 import (
 	"net"
 	"fmt"
+	"time"
+	"math/rand"
 	"encoding/binary"
 	"crypto/hmac"
 	"crypto/sha1"
@@ -69,6 +71,51 @@ type message struct {
 	attributes        []*attribute
 }
 
+// -------------------------------------------------------------------------------------------------
+
+func genTransactionID() []byte {
+
+	id := make([]byte, 12)
+
+	// get a random 96-bit number
+	rand.Seed(time.Now().UnixNano())
+	binary.BigEndian.PutUint32(id[0:], rand.Uint32())
+	binary.BigEndian.PutUint32(id[4:], rand.Uint32())
+	binary.BigEndian.PutUint32(id[8:], rand.Uint32())
+
+	return id
+}
+
+func decodeXorAddr(val []byte) (*address, error) {
+
+	fm := val[1]
+
+	xport := binary.BigEndian.Uint16(val[2:])
+	port := xport ^ (STUN_MSG_MAGIC_COOKIE >> 16)
+
+	if fm == 0x01 {
+		xip := binary.BigEndian.Uint32(val[4:])
+		ip := xip ^ STUN_MSG_MAGIC_COOKIE
+		bytes := make([]byte, 4)
+		binary.BigEndian.PutUint32(bytes[0:], ip)
+		ip4 := net.IPv4(bytes[0], bytes[1], bytes[2], bytes[3]).To4()
+		if ip4 == nil {
+			return nil, fmt.Errorf("invalid IPv4")
+		}
+
+		return &address{
+			IP:   ip4,
+			Port: int(port),
+		}, nil
+	} else if fm == 0x02 {
+		// TODO ipv6
+		return nil, fmt.Errorf("peer could not be IPv6")
+	} else {
+		return nil, fmt.Errorf("invalid address")
+	}
+}
+
+// -------------------------------------------------------------------------------------------------
 
 func (this *message) buffer() []byte {
 
@@ -232,32 +279,20 @@ func (this *message) doBindingRequest(r *address) (*message, error) {
 	return msg, nil
 }
 
+func newBindingRequest() (*message, error) {
+
+	msg := &message{}
+	msg.method = STUN_MSG_METHOD_BINDING
+	msg.encoding = STUN_MSG_REQUEST
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+	msg.transactionID = append(msg.transactionID, genTransactionID()...)
+
+	return msg, nil
+}
+
 func (this *message) getAttrXorAddr(attr *attribute) (addr *address, err error) {
 
-	fm := attr.value[1]
-
-	xport := binary.BigEndian.Uint16(attr.value[2:])
-	port := xport ^ (STUN_MSG_MAGIC_COOKIE >> 16)
-
-	if fm == 0x01 {
-		xip := binary.BigEndian.Uint32(attr.value[4:])
-		ip := xip ^ STUN_MSG_MAGIC_COOKIE
-		bytes := make([]byte, 4)
-		binary.BigEndian.PutUint32(bytes[0:], ip)
-		ip4 := net.IPv4(bytes[0], bytes[1], bytes[2], bytes[3]).To4()
-		if ip4 == nil {
-			return nil, fmt.Errorf("invalid IPv4")
-		}
-
-		return &address{
-			IP:   ip4,
-			Port: int(port),
-		}, nil
-	} else if fm == 0x02 {
-		return nil, fmt.Errorf("peer could not be IPv6")
-	} else {
-		return nil, fmt.Errorf("invalid address")
-	}
+	return decodeXorAddr(attr.value)
 }
 
 func (this *message) getAttrRealm() (string, error) {
@@ -501,9 +536,24 @@ func (this *message) print(title string) {
 	}
 	str += "\n"
 	str += fmt.Sprintf("  attributes:\n")
+
+	// show extra info like decoded xor addresses
+	showExtra := func(attr *attribute) string {
+		if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR {
+			addr, err := decodeXorAddr(attr.value)
+			if err != nil {
+				return fmt.Sprintf("(%v)", err)
+			}
+			return fmt.Sprintf("(%s:%d)", addr.IP, addr.Port)
+		} else {
+			return ""
+		}
+	}
+
+	// print all attributes
 	for _, v := range this.attributes {
-		str += fmt.Sprintf("    type=0x%04x(%s), len=%d, value=%s\n",
-			v.typevalue, v.typename, v.length, dbg.DumpMem(v.value, 0))
+		str += fmt.Sprintf("    type=0x%04x(%s), len=%d, value=%s%s\n",
+			v.typevalue, v.typename, v.length, dbg.DumpMem(v.value, 0), showExtra(v))
 	}
 	fmt.Println(str)
 }
