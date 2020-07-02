@@ -1145,3 +1145,95 @@ func (ch *channelData) print(title string) {
 	str += fmt.Sprintf("%s\n", dbg.DumpMem(ch.data, 16))
 	fmt.Println(str)
 }
+
+// -------------------------------------------------------------------------------------------------
+
+func (cl *stunclient) Alloc() error {
+
+	// create initial alloc request
+	req, _ := newInitAllocationRequest()
+	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+	buf, err := transmit(cl.remote, req.buffer())
+	if err != nil {
+		return fmt.Errorf("alloc request: %s", err)
+	}
+
+	// get response from server and return relayed IP address
+	resp, err := getMessage(buf)
+	if err != nil {
+		return fmt.Errorf("alloc response: %s", err)
+	}
+	resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+	// 401 failure on the first alloc request is expected behavior
+	code, errStr, err := resp.getAttrErrorCode()
+	if err != nil {
+		return fmt.Errorf("alloc response: %s", err)
+	}
+	if code != 401 {
+		return fmt.Errorf("alloc response: %d:%s", code, errStr)
+	}
+
+	// get REALM and NONCE
+	cl.realm, err = resp.getAttrRealm()
+	if err != nil {
+		return fmt.Errorf("alloc response: get realm: %s", err)
+	}
+	cl.nonce, err = resp.getAttrNonce()
+	if err != nil {
+		return fmt.Errorf("alloc response: nonce: %s", err)
+	}
+
+	// subsequent request
+	req, _ = newSubAllocationRequest(cl.Username, cl.realm, cl.nonce)
+	if cl.Lifetime != 0 {
+		req.length += req.addAttrLifetime(cl.Lifetime)
+	}
+	if cl.NoFragment {
+		// TODO NO-FRAGMENT
+	}
+	if cl.EvenPort {
+		// TODO EVEN-PORT
+	}
+	if cl.ReservToken != nil {
+		// TODO RESERVATION-TOKEN
+	}
+	// for long-term credentials, key = MD5(username ":" realm ":" SASLprep(password))
+	// https://tools.ietf.org/html/rfc5389#section-15.4
+	key := md5.Sum([]byte(cl.Username + ":" + cl.realm + ":" + cl.Password))
+	req.length += req.addAttrMsgIntegrity(string(key[0:16]))
+
+	// send subsequent request to server
+	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+	buf, err = transmit(cl.remote, req.buffer())
+	if err != nil {
+		return fmt.Errorf("alloc request: %s", err)
+	}
+
+	// get response from server and return relayed IP address
+	resp, err = getMessage(buf)
+	if err != nil {
+		return fmt.Errorf("alloc response: %s", err)
+	}
+	resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+	// get response status
+	code, errStr, err = resp.getAttrErrorCode()
+	if err != nil {
+		return fmt.Errorf("server returned error %d:%s", code, errStr)
+	}
+
+	// get relayed address
+	cl.relay, err = resp.getAttrXorRelayedAddr()
+	if err != nil {
+		return fmt.Errorf("alloc response: missing relayed address")
+	}
+
+	// adjust lifetime
+	cl.Lifetime, err = resp.getAttrLifetime()
+	if err != nil {
+		return fmt.Errorf("alloc response: no lifetime")
+	}
+
+	return nil
+}
