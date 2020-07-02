@@ -59,7 +59,7 @@
 *** HOW
     refactor code logic
 
-** TODO link/stun:server:refresh lifetime=0, request not succeed         :p2:
+** DONE link/stun:server:refresh lifetime=0, request not succeed         :p2:
 *** WHAT
     refresh request lifetime=0 will return error code (alloc mismatch)
     should comply with https://tools.ietf.org/html/rfc5766#section-7.2 page 31
@@ -69,5 +69,6 @@
     coin0
 *** WHY
     design defect
+    <2020-07-02 四 10:43> not a server bug, client sdk isue
 *** HOW
     <2020-07-02 四 10:23> investigating
