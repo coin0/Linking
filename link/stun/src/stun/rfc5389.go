@@ -793,7 +793,7 @@ func (cl *stunclient) Bind() (err error) {
 	// create request
 	msg, _ := newBindingRequest()
 	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	resp, err := transmit(cl.remote, msg.buffer())
+	resp, err := cl.transmit(msg.buffer())
 	if err != nil {
 		return fmt.Errorf("binding request: %s", err)
 	}
@@ -804,7 +804,7 @@ func (cl *stunclient) Bind() (err error) {
 	}
 	msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
 
-	// return srflx IP address
+	// save srflx IP address
 	cl.srflx, err = msg.getAttrXorMappedAddr()
 	if err != nil {
 		return fmt.Errorf("binding response: srflx: %s", err)

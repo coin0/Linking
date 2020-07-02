@@ -333,6 +333,27 @@ func (this *message) doRefreshRequest(alloc *allocation) (*message, error) {
 	return addIntegrity()
 }
 
+func newRefreshRequest(lifetime uint32, username, password, realm, nonce string) (*message, error) {
+
+	msg := &message{}
+	msg.method = STUN_MSG_METHOD_REFRESH
+	msg.encoding = STUN_MSG_REQUEST
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+	msg.transactionID = append(msg.transactionID, genTransactionID()...)
+
+	// add LIFETIME + USERNAME + REALM + NONCE + MESSAGE-INTEGRITY
+	msg.length += msg.addAttrLifetime(lifetime)
+	msg.length += msg.addAttrUsername(username)
+	msg.length += msg.addAttrRealm(realm)
+	msg.length += msg.addAttrNonce(nonce)
+
+	// make sure MESSAGE-INTEGRITY is the last attribute
+	key := md5.Sum([]byte(username + ":" + realm + ":" + password))
+	msg.length += msg.addAttrMsgIntegrity(string(key[0:16]))
+
+	return msg, nil
+}
+
 func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 
 	// 1. long-term credential
@@ -1145,12 +1166,27 @@ func (ch *channelData) print(title string) {
 
 // -------------------------------------------------------------------------------------------------
 
+func (cl *stunclient) transmit(data []byte) ([]byte, error) {
+
+	if cl.remote == nil {
+		return nil, fmt.Errorf("remote address not specified")
+	}
+
+	switch cl.remote.Proto {
+	case NET_TCP:
+	case NET_UDP: return transmitUDP(cl.remote, cl.srflx, data)
+	case NET_TLS:
+	}
+
+	return nil, fmt.Errorf("unsupported protocol")
+}
+
 func (cl *stunclient) Alloc() error {
 
 	// create initial alloc request
 	req, _ := newInitAllocationRequest()
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err := transmit(cl.remote, req.buffer())
+	buf, err := cl.transmit(req.buffer())
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1202,7 +1238,7 @@ func (cl *stunclient) Alloc() error {
 
 	// send subsequent request to server
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err = transmit(cl.remote, req.buffer())
+	buf, err = cl.transmit(req.buffer())
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1220,7 +1256,7 @@ func (cl *stunclient) Alloc() error {
 		return fmt.Errorf("server returned error %d:%s", code, errStr)
 	}
 
-	// return srflx IP address
+	// save srflx IP address
 	cl.srflx, err = resp.getAttrXorMappedAddr()
 	if err != nil {
 		return fmt.Errorf("binding response: srflx: %s", err)
@@ -1244,7 +1280,38 @@ func (cl *stunclient) Alloc() error {
 	return nil
 }
 
-func (cl *stunclient) Refresh() (err error) {
+func (cl *stunclient) Refresh(lifetime uint32) error {
+
+	for retry := 2; retry > 0; retry-- {
+
+		req, _ := newRefreshRequest(lifetime, cl.Username, cl.Password, cl.realm, cl.nonce)
+		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+
+		// send request to server
+		buf, err := cl.transmit(req.buffer())
+		if err != nil {
+			return fmt.Errorf("refresh request: %s", err)
+		}
+
+		// get response from server
+		resp, err := getMessage(buf)
+		if err != nil {
+			return fmt.Errorf("refresh response: %s", err)
+		}
+		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+		// handle error code
+		code, _, _ := resp.getAttrErrorCode()
+		switch code {
+		case STUN_ERR_STALE_NONCE:
+			nonce, err := resp.getAttrNonce()
+			if err != nil {
+				return fmt.Errorf("get NONCE: %s", err)
+			}
+			cl.nonce = nonce // refresh nonce
+		default: break
+		}
+	}
 
 	return nil
 }
