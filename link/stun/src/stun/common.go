@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"sync"
 	"time"
-	"crypto/md5"
+)
+
+const (
+	PROTO_NUM_UDP     = 17
 )
 
 const (
