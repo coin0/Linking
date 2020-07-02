@@ -17,7 +17,7 @@ func main() {
 	// binding request
 	err = client.Bind()
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("###", err)
 	}
 
 
@@ -28,7 +28,22 @@ func main() {
 	client.NoFragment = true
 	client.EvenPort = true
 	client.ReservToken = make([]byte, 8)
-	client.Alloc()
+	err = client.Alloc()
+	if err != nil {
+		fmt.Println("###", err)
+	}
+
+	// refresh request
+	err = client.Refresh(client.Lifetime)
+	if err != nil {
+		fmt.Println("###", err)
+	}
+
+	// free alloc
+	err = client.Refresh(0)
+	if err != nil {
+		fmt.Println("###", err)
+	}
 
 	return
 }

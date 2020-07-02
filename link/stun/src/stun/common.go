@@ -434,32 +434,29 @@ func (addr *address) String() string {
 
 // -------------------------------------------------------------------------------------------------
 
-// TransmitXXX() TransmitTCP() and TransmitUDP() are used by stun clients
+// TransmitTCP() and TransmitUDP() are used by stun clients
 
-func transmit(r *address, data []byte) ([]byte, error) {
-
-	switch r.Proto {
-	case NET_TCP:
-	case NET_UDP: return transmitUDP(r, data)
-	case NET_TLS:
-	}
-
-	return nil, fmt.Errorf("unsupported protocol")
-}
-
-func transmitTCP(r *address, data []byte) ([]byte, error) {
+func transmitTCP(r, _ *address, data []byte) ([]byte, error) {
 
 	return nil, nil
 }
 
-func transmitUDP(r *address, data []byte) ([]byte, error) {
+func transmitUDP(r, l *address, data []byte) ([]byte, error) {
 
 	// dial UDP
 	raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", r.IP, r.Port))
 	if err != nil {
 		return nil, fmt.Errorf("resolve UDP: %s", err)
 	}
-	conn, err := net.DialUDP("udp", nil, raddr)
+	var laddr *net.UDPAddr
+	if l != nil {
+		laddr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", l.IP, l.Port))
+		if err != nil {
+			return nil, fmt.Errorf("resolve UDP: %s", err)
+		}
+	}
+
+	conn, err := net.DialUDP("udp", laddr, raddr)
 	if err != nil {
 		return nil, fmt.Errorf("dial UDP: %s", err)
 	}

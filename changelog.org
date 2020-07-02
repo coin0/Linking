@@ -17,6 +17,7 @@
     Should complete most of func and would be the prototype for C version sdk
     <2020-07-01 三 10:53> binding request
     <2020-07-01 三 18:43> alloc request
+    <2020-07-02 四 10:24> refresh request
 *** TODO C version
     Make sure this version will keep the same interfaces with Golang version
 
@@ -46,3 +47,27 @@
 *** HOW
     Add 2000ms sleep time after AT+RST sent to esp01
     <2020-07-01 三 10:54> To be verified
+** TODO link/stun:client:alloc always returns error and relay is not saved :p1:
+*** WHAT
+    always failed when tried to request allocation
+*** WHEN
+    <2020-07-02 四 10:20>
+*** WHO
+    coin0
+*** WHY
+    should not check error code existence, obviously there is no error code on success
+*** HOW
+    refactor code logic
+
+** TODO link/stun:server:refresh lifetime=0, request not succeed         :p2:
+*** WHAT
+    refresh request lifetime=0 will return error code (alloc mismatch)
+    should comply with https://tools.ietf.org/html/rfc5766#section-7.2 page 31
+*** WHEN
+    <2020-07-02 四 10:23>
+*** WHO
+    coin0
+*** WHY
+    design defect
+*** HOW
+    <2020-07-02 四 10:23> investigating
