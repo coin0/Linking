@@ -48,7 +48,7 @@
 *** HOW
     Add 2000ms sleep time after AT+RST sent to esp01
     <2020-07-01 三 10:54> To be verified
-** TODO link/stun:client:alloc always returns error and relay is not saved :p1:
+** DONE link/stun:client:alloc always returns error and relay is not saved :p1:
 *** WHAT
     always failed when tried to request allocation
 *** WHEN
@@ -58,7 +58,7 @@
 *** WHY
     should not check error code existence, obviously there is no error code on success
 *** HOW
-    refactor code logic
+    Refactor code logic
 
 ** DONE link/stun:server:refresh lifetime=0, request not succeed         :p2:
 *** WHAT
