@@ -71,6 +71,36 @@ type message struct {
 	attributes        []*attribute
 }
 
+type stunclient struct {
+	// long-term credential
+	Username    string
+	Password    string
+
+	// realm
+	realm       string
+
+	// nonce
+	nonce       string
+
+	// server address
+	remote      *address
+
+	// relayed address
+	relay       *address
+
+	// alloc lifetime
+	Lifetime    uint32
+
+	// DONT-FRAGMENT
+	NoFragment  bool
+
+	// EVEN-PORT
+	EvenPort    bool
+
+	// 8-byte reservation token
+	ReservToken []byte
+}
+
 // -------------------------------------------------------------------------------------------------
 
 func genTransactionID() []byte {
@@ -733,4 +763,46 @@ func (this *message) checkCredential() (code int, err error) {
 	}
 
 	return 0, nil
+}
+
+// -------------------------------------------------------------------------------------------------
+
+func NewClient(ip string, port int, proto string) (*stunclient, error) {
+
+	return &stunclient{
+		remote: &address{
+			IP: net.ParseIP(ip),
+			Port: port,
+			Proto: func(p string) byte {
+				switch p {
+				case "tcp": return NET_TCP
+				case "udp": return NET_UDP
+				case "tls": return NET_TLS
+				default: return NET_UDP // default type
+				}
+			}(proto),
+		},
+	}, nil
+}
+
+func (cl *stunclient) Bind() (addr *address, err error) {
+
+	// create request
+	msg, _ := newBindingRequest()
+	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
+	resp, err := transmit(cl.remote, msg.buffer())
+	if err != nil {
+		return nil, fmt.Errorf("binding request: %s", err)
+	}
+
+	msg, err = getMessage(resp)
+	if err != nil {
+		return nil, fmt.Errorf("binding response: %s", err)
+	}
+	msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+	// return srflx IP address
+	addr, err = msg.getAttrXorMappedAddr()
+	addr.Proto = cl.remote.Proto
+	return
 }
