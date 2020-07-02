@@ -39,8 +39,8 @@ func main() {
 		fmt.Println("###", err)
 	}
 
-	// free alloc
-	err = client.Refresh(0)
+	// create perm request
+	err = client.CreatePerm([]string{"127.0.0.1", "192.168.0.14", "192.168.0.13", "192.168.0.12"})
 	if err != nil {
 		fmt.Println("###", err)
 	}
