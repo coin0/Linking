@@ -441,7 +441,7 @@ func transmitTCP(r, _ *address, data []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func transmitUDP(r, l *address, data []byte) ([]byte, error) {
+func transmitUDP(r, l *address, msg *message) ([]byte, error) {
 
 	// dial UDP
 	raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", r.IP, r.Port))
@@ -465,17 +465,21 @@ func transmitUDP(r, l *address, data []byte) ([]byte, error) {
 	defer conn.Close()
 
 	// send message to target server
-	_, err = conn.Write(data)
+	_, err = conn.Write(msg.buffer())
 	if err != nil {
 		return nil, fmt.Errorf("write UDP: %s", err)
 	}
 
-	// read message from server side
-	buf := make([]byte, DEFAULT_MTU)
-	nr, err := conn.Read(buf)
-	if err != nil {
-		return nil, fmt.Errorf("get response from udp://%s:%d: %s", r.IP, r.Port, err)
+	if msg.isRequest() {
+		// read message from server side
+		buf := make([]byte, DEFAULT_MTU)
+		nr, err := conn.Read(buf)
+		if err != nil {
+			return nil, fmt.Errorf("read UDP: %s", err)
+		}
+
+		return buf[:nr], nil
 	}
 
-	return buf[:nr], nil
+	return nil, nil
 }

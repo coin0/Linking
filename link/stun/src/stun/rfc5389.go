@@ -794,7 +794,7 @@ func (cl *stunclient) Bind() (err error) {
 	// create request
 	msg, _ := newBindingRequest()
 	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	resp, err := cl.transmit(msg.buffer())
+	resp, err := cl.transmit(msg)
 	if err != nil {
 		return fmt.Errorf("binding request: %s", err)
 	}

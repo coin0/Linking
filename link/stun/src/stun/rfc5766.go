@@ -274,6 +274,21 @@ func (this *message) doSendIndication(alloc *allocation) {
 	alloc.server.sendToPeer(addr, data)
 }
 
+func newSendIndication(peer *address, data []byte) (*message, error) {
+
+	msg := &message{}
+	msg.method = STUN_MSG_METHOD_SEND
+	msg.encoding = STUN_MSG_INDICATION
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+	msg.transactionID = append(msg.transactionID, genTransactionID()...)
+
+	// add peer address and data payloads
+	msg.length += msg.addAttrXorPeerAddr(peer)
+	msg.length += msg.addAttrData(data)
+
+	return msg, nil
+}
+
 func (this *message) doCreatePermRequest(alloc *allocation) (*message, error) {
 
 	addrs, err := this.getAttrXorPeerAddresses()
@@ -1191,7 +1206,7 @@ func (ch *channelData) print(title string) {
 
 // -------------------------------------------------------------------------------------------------
 
-func (cl *stunclient) transmit(data []byte) ([]byte, error) {
+func (cl *stunclient) transmit(msg *message) ([]byte, error) {
 
 	if cl.remote == nil {
 		return nil, fmt.Errorf("remote address not specified")
@@ -1199,7 +1214,7 @@ func (cl *stunclient) transmit(data []byte) ([]byte, error) {
 
 	switch cl.remote.Proto {
 	case NET_TCP:
-	case NET_UDP: return transmitUDP(cl.remote, cl.srflx, data)
+	case NET_UDP: return transmitUDP(cl.remote, cl.srflx, msg)
 	case NET_TLS:
 	}
 
@@ -1211,7 +1226,7 @@ func (cl *stunclient) Alloc() error {
 	// create initial alloc request
 	req, _ := newInitAllocationRequest()
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err := cl.transmit(req.buffer())
+	buf, err := cl.transmit(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1263,7 +1278,7 @@ func (cl *stunclient) Alloc() error {
 
 	// send subsequent request to server
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err = cl.transmit(req.buffer())
+	buf, err = cl.transmit(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1314,7 +1329,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req.buffer())
+		buf, err := cl.transmit(req)
 		if err != nil {
 			return fmt.Errorf("refresh request: %s", err)
 		}
@@ -1370,7 +1385,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req.buffer())
+		buf, err := cl.transmit(req)
 		if err != nil {
 			return fmt.Errorf("create-permission request: %s", err)
 		}
@@ -1400,6 +1415,26 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 			}
 		}
 		break
+	}
+
+	return nil
+}
+
+func (cl *stunclient) Send(ip string, port int, data []byte) error {
+
+	msg, _ := newSendIndication(
+		&address{
+			IP: net.ParseIP(ip).To4(),
+			Port: port,
+		},
+		data,
+	)
+	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
+
+	// send indication to server
+	_, err := cl.transmit(msg)
+	if err != nil {
+		return fmt.Errorf("send indication: %s", err)
 	}
 
 	return nil
