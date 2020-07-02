@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 	"sync"
+	"crypto/md5"
 	"util/dbg"
 )
 
@@ -60,10 +61,6 @@ const (
 	STUN_ERR_UNSUPPORTED_PROTO   = 442
 	STUN_ERR_ALLOC_QUOTA         = 486
 	STUN_ERR_INSUFFICIENT_CAP    = 508
-)
-
-const (
-	PROTO_NUM_UDP                = 17
 )
 
 type turnpool struct {
@@ -1223,17 +1220,31 @@ func (cl *stunclient) Alloc() error {
 		return fmt.Errorf("server returned error %d:%s", code, errStr)
 	}
 
+	// return srflx IP address
+	cl.srflx, err = resp.getAttrXorMappedAddr()
+	if err != nil {
+		return fmt.Errorf("binding response: srflx: %s", err)
+	}
+	cl.srflx.Proto = cl.remote.Proto
+
 	// get relayed address
 	cl.relay, err = resp.getAttrXorRelayedAddr()
 	if err != nil {
 		return fmt.Errorf("alloc response: missing relayed address")
 	}
+	// only UDP is supported according to https://tools.ietf.org/html/rfc5766#section-14.7
+	cl.relay.Proto = NET_UDP
 
 	// adjust lifetime
 	cl.Lifetime, err = resp.getAttrLifetime()
 	if err != nil {
 		return fmt.Errorf("alloc response: no lifetime")
 	}
+
+	return nil
+}
+
+func (cl *stunclient) Refresh() (err error) {
 
 	return nil
 }

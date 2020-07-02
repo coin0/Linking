@@ -85,6 +85,9 @@ type stunclient struct {
 	// server address
 	remote      *address
 
+	// reflexive address
+	srflx       *address
+
 	// relayed address
 	relay       *address
 
@@ -785,24 +788,28 @@ func NewClient(ip string, port int, proto string) (*stunclient, error) {
 	}, nil
 }
 
-func (cl *stunclient) Bind() (addr *address, err error) {
+func (cl *stunclient) Bind() (err error) {
 
 	// create request
 	msg, _ := newBindingRequest()
 	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
 	resp, err := transmit(cl.remote, msg.buffer())
 	if err != nil {
-		return nil, fmt.Errorf("binding request: %s", err)
+		return fmt.Errorf("binding request: %s", err)
 	}
 
 	msg, err = getMessage(resp)
 	if err != nil {
-		return nil, fmt.Errorf("binding response: %s", err)
+		return fmt.Errorf("binding response: %s", err)
 	}
 	msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
 
 	// return srflx IP address
-	addr, err = msg.getAttrXorMappedAddr()
-	addr.Proto = cl.remote.Proto
-	return
+	cl.srflx, err = msg.getAttrXorMappedAddr()
+	if err != nil {
+		return fmt.Errorf("binding response: srflx: %s", err)
+	}
+	cl.srflx.Proto = cl.remote.Proto
+
+	return nil
 }

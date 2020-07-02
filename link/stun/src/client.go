@@ -15,11 +15,11 @@ func main() {
 	}
 
 	// binding request
-	srflx, err := client.Bind()
+	err = client.Bind()
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Printf("[Binding] srflx=%s\n", srflx)
+
 
 	// alloc request
 	client.Username = "root"
