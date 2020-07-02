@@ -299,6 +299,31 @@ func (this *message) doCreatePermRequest(alloc *allocation) (*message, error) {
 	return msg, nil
 }
 
+func newCreatePermRequest(username, password, realm, nonce string, peers []*address) (*message, error) {
+
+	msg := &message{}
+	msg.method = STUN_MSG_METHOD_CREATE_PERM
+	msg.encoding = STUN_MSG_REQUEST
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+	msg.transactionID = append(msg.transactionID, genTransactionID()...)
+
+	// add credential attributes
+	msg.length += msg.addAttrUsername(username)
+	msg.length += msg.addAttrRealm(realm)
+	msg.length += msg.addAttrNonce(nonce)
+
+	// add each peer to XOR-PEER-ADDRESS
+	for _, peer := range peers {
+		msg.length += msg.addAttrXorPeerAddr(peer)
+	}
+
+	// make sure MESSAGE-INTEGRITY is the last attribute
+	key := md5.Sum([]byte(username + ":" + realm + ":" + password))
+	msg.length += msg.addAttrMsgIntegrity(string(key[0:16]))
+
+	return msg, nil
+}
+
 func (this *message) doRefreshRequest(alloc *allocation) (*message, error) {
 
 	msg := &message{}
@@ -1297,6 +1322,59 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 		resp, err := getMessage(buf)
 		if err != nil {
 			return fmt.Errorf("refresh response: %s", err)
+		}
+		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+		// handle error code
+		code, _, _ := resp.getAttrErrorCode()
+		switch code {
+		case STUN_ERR_STALE_NONCE:
+			nonce, err := resp.getAttrNonce()
+			if err != nil {
+				return fmt.Errorf("get NONCE: %s", err)
+			}
+			cl.nonce = nonce // refresh nonce
+
+			retry--
+			continue
+		default:
+		}
+		break
+	}
+
+	return nil
+}
+
+func (cl *stunclient) CreatePerm(ipList []string) error {
+
+	for retry := 2; retry > 0; {
+
+		// prepare new message
+		req, _ := newCreatePermRequest(cl.Username, cl.Password, cl.realm, cl.nonce,
+			func() []*address {
+				addrs := []*address{}
+				for _, ip := range ipList {
+					addrs = append(addrs, &address{
+						IP: net.ParseIP(ip).To4(),
+						// any port is ok, https://tools.ietf.org/html/rfc5766#section-9.1
+						Port: 0,
+						Proto: NET_UDP,
+					})
+				}
+				return addrs
+			}())
+		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+
+		// send request to server
+		buf, err := cl.transmit(req.buffer())
+		if err != nil {
+			return fmt.Errorf("create-permission request: %s", err)
+		}
+
+		// get response from server
+		resp, err := getMessage(buf)
+		if err != nil {
+			return fmt.Errorf("create-permission response: %s", err)
 		}
 		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
 

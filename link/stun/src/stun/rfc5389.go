@@ -631,7 +631,8 @@ func (this *message) print(title string) {
 	// show extra info like decoded xor addresses
 	showExtra := func(attr *attribute) string {
 		if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR ||
-			attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR {
+			attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR ||
+			attr.typevalue == STUN_ATTR_XOR_PEER_ADDR {
 			addr, err := decodeXorAddr(attr)
 			if err != nil {
 				return fmt.Sprintf("(%v)", err)
