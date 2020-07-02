@@ -1327,18 +1327,21 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
 
 		// handle error code
-		code, _, _ := resp.getAttrErrorCode()
-		switch code {
-		case STUN_ERR_STALE_NONCE:
-			nonce, err := resp.getAttrNonce()
-			if err != nil {
-				return fmt.Errorf("get NONCE: %s", err)
-			}
-			cl.nonce = nonce // refresh nonce
+		code, errStr, err := resp.getAttrErrorCode()
+		if err == nil {
+			switch code {
+			case STUN_ERR_STALE_NONCE:
+				nonce, err := resp.getAttrNonce()
+				if err != nil {
+					return fmt.Errorf("get NONCE: %s", err)
+				}
+				cl.nonce = nonce // refresh nonce
 
-			retry--
-			continue
-		default:
+				retry--
+				continue
+			default:
+				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+			}
 		}
 		break
 	}
@@ -1380,18 +1383,21 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
 
 		// handle error code
-		code, _, _ := resp.getAttrErrorCode()
-		switch code {
-		case STUN_ERR_STALE_NONCE:
-			nonce, err := resp.getAttrNonce()
-			if err != nil {
-				return fmt.Errorf("get NONCE: %s", err)
-			}
-			cl.nonce = nonce // refresh nonce
+		code, errStr, err := resp.getAttrErrorCode()
+		if err == nil {
+			switch code {
+			case STUN_ERR_STALE_NONCE:
+				nonce, err := resp.getAttrNonce()
+				if err != nil {
+					return fmt.Errorf("get NONCE: %s", err)
+				}
+				cl.nonce = nonce // refresh nonce
 
-			retry--
-			continue
-		default:
+				retry--
+				continue
+			default:
+				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+			}
 		}
 		break
 	}
