@@ -45,5 +45,11 @@ func main() {
 		fmt.Println("###", err)
 	}
 
+	// send data
+	err = client.Send("127.0.0.1", 45879, []byte{'h','e','l','l','o'})
+	if err != nil {
+		fmt.Println("###", err)
+	}
+
 	return
 }
