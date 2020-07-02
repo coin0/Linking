@@ -1226,10 +1226,10 @@ func (cl *stunclient) Alloc() error {
 	// 401 failure on the first alloc request is expected behavior
 	code, errStr, err := resp.getAttrErrorCode()
 	if err != nil {
-		return fmt.Errorf("alloc response: %s", err)
+		return fmt.Errorf("missing expected 401 error code")
 	}
 	if code != 401 {
-		return fmt.Errorf("alloc response: %d:%s", code, errStr)
+		return fmt.Errorf("missing 401 error code, actual response: %d:%s", code, errStr)
 	}
 
 	// get REALM and NONCE
@@ -1277,7 +1277,8 @@ func (cl *stunclient) Alloc() error {
 
 	// get response status
 	code, errStr, err = resp.getAttrErrorCode()
-	if err != nil {
+	if err == nil {
+		// err == nil indicates server returns error
 		return fmt.Errorf("server returned error %d:%s", code, errStr)
 	}
 
