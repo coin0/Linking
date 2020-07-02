@@ -1282,7 +1282,7 @@ func (cl *stunclient) Alloc() error {
 
 func (cl *stunclient) Refresh(lifetime uint32) error {
 
-	for retry := 2; retry > 0; retry-- {
+	for retry := 2; retry > 0; {
 
 		req, _ := newRefreshRequest(lifetime, cl.Username, cl.Password, cl.realm, cl.nonce)
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
@@ -1309,8 +1309,12 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 				return fmt.Errorf("get NONCE: %s", err)
 			}
 			cl.nonce = nonce // refresh nonce
-		default: break
+
+			retry--
+			continue
+		default:
 		}
+		break
 	}
 
 	return nil
