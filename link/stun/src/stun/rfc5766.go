@@ -250,6 +250,31 @@ func (this *message) doChanBindRequest(alloc *allocation) (*message, error) {
 	return msg, nil
 }
 
+func newChanBindRequest(username, password, realm, nonce string,
+	peer *address, channel uint16) (*message, error) {
+
+	msg := &message{}
+	msg.method = STUN_MSG_METHOD_CHANNEL_BIND
+	msg.encoding = STUN_MSG_REQUEST
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+	msg.transactionID = append(msg.transactionID, genTransactionID()...)
+
+	// add credential attributes
+	msg.length += msg.addAttrUsername(username)
+	msg.length += msg.addAttrRealm(realm)
+	msg.length += msg.addAttrNonce(nonce)
+
+	// add xor peer address and channel number
+	msg.length += msg.addAttrXorPeerAddr(peer)
+	msg.length += msg.addAttrChanNumber(channel)
+
+	// make sure MESSAGE-INTEGRITY is the last attribute
+	key := md5.Sum([]byte(username + ":" + realm + ":" + password))
+	msg.length += msg.addAttrMsgIntegrity(string(key[0:16]))
+
+	return msg, nil
+}
+
 func (this *message) doSendIndication(alloc *allocation) {
 
 	addr, err := this.getAttrXorPeerAddress()
@@ -485,6 +510,19 @@ func (this *message) checkAllocation() error {
 	}
 
 	return nil
+}
+
+func (this *message) addAttrChanNumber(channel uint16) int {
+
+	attr := &attribute{}
+	attr.typevalue = STUN_ATTR_CHANNEL_NUMBER
+	attr.typename = parseAttributeType(attr.typevalue)
+	attr.length = 4
+	attr.value = []byte{0, 0, 0, 0}
+	binary.BigEndian.PutUint16(attr.value[0:], channel)
+
+	this.attributes = append(this.attributes, attr)
+	return 8 // 4 + 4
 }
 
 func (this *message) addAttrData(data []byte) int {
@@ -1527,4 +1565,72 @@ func (cl *stunclient) Receive(size int) ([]byte, error) {
 	}
 
 	return nil, fmt.Errorf("no connection")
+}
+
+func (cl *stunclient) getChan(peer *address, needRenew bool) uint16 {
+
+	key := keygen(peer)
+	genChan := func() uint16 {
+		return uint16(0x4000 + rand.Uint32() % (0x7ffe - 0x4000))
+	}
+
+	if _, ok := cl.channels[key]; !ok || needRenew {
+		cl.channels[key] = genChan()
+	}
+
+	return cl.channels[key]
+}
+
+func (cl *stunclient) BindChan(ip string, port int) error {
+
+	peer := &address{
+		IP: net.ParseIP(ip).To4(),
+		Port: port,
+		Proto: NET_UDP,
+	}
+
+	for retry, needRenew := 2, false; retry > 0; {
+
+		ch := cl.getChan(peer, needRenew)
+		req, _ := newChanBindRequest(cl.Username, cl.Password, cl.realm, cl.nonce, peer, ch)
+		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+
+		// send request to server
+		buf, err := cl.transmit(req)
+		if err != nil {
+			return fmt.Errorf("channel-bind request: %s", err)
+		}
+
+		// get response from server
+		resp, err := getMessage(buf)
+		if err != nil {
+			return fmt.Errorf("channel-bind response: %s", err)
+		}
+		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+
+		// handle error code
+		code, errStr, err := resp.getAttrErrorCode()
+		if err == nil {
+			switch code {
+			case STUN_ERR_STALE_NONCE:
+				nonce, err := resp.getAttrNonce()
+				if err != nil {
+					return fmt.Errorf("get NONCE: %s", err)
+				}
+				cl.nonce = nonce // refresh nonce
+
+				retry--
+				continue
+			case STUN_ERR_INSUFFICIENT_CAP:
+				needRenew = true
+				retry--
+				continue
+			default:
+				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+			}
+		}
+		break
+	}
+
+	return nil
 }
