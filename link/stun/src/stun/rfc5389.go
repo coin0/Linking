@@ -91,6 +91,9 @@ type stunclient struct {
 	// relayed address
 	relay       *address
 
+	// not nil if client is using UDP connection
+	udpConn     *net.UDPConn
+
 	// alloc lifetime
 	Lifetime    uint32
 

@@ -441,31 +441,10 @@ func transmitTCP(r, _ *address, data []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func transmitUDP(r, l *address, msg *message) ([]byte, error) {
-
-	// dial UDP
-	raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", r.IP, r.Port))
-	if err != nil {
-		return nil, fmt.Errorf("resolve UDP: %s", err)
-	}
-	var laddr *net.UDPAddr
-	if l != nil {
-		laddr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", l.IP, l.Port))
-		if err != nil {
-			return nil, fmt.Errorf("resolve UDP: %s", err)
-		}
-	}
-
-	conn, err := net.DialUDP("udp", laddr, raddr)
-	if err != nil {
-		return nil, fmt.Errorf("dial UDP: %s", err)
-	}
-
-	// close connection if it is done
-	defer conn.Close()
+func transmitUDP(conn *net.UDPConn, r, l *address, msg *message) ([]byte, error) {
 
 	// send message to target server
-	_, err = conn.Write(msg.buffer())
+	_, err := conn.Write(msg.buffer())
 	if err != nil {
 		return nil, fmt.Errorf("write UDP: %s", err)
 	}
