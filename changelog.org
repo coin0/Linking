@@ -21,6 +21,7 @@
     <2020-07-02 四 13:17> create-perm request
     <2020-07-02 四 16:41> send indication
     <2020-07-06 一 13:54> data indication
+    <2020-07-06 一 16:42> channel-bind request
 *** TODO C version
     Make sure this version will keep the same interfaces with Golang version
 
@@ -75,3 +76,15 @@
     <2020-07-02 四 10:43> not a server bug, client sdk isue
 *** HOW
     <2020-07-02 四 10:23> investigating
+** TODO link/stun:server:the key of channel map should be proto:ip:port combination instead of simple ip address :p2:
+*** WHAT
+    according to definition in https://tools.ietf.org/html/rfc5766#section-11
+    channels are bound to different transport address instead of ip address
+*** WHEN
+    <2020-07-06 一 15:39>
+*** WHO
+    coin0
+*** WHY
+    Review the code in rfc5766, channels are saved by the key made from simple ip address, this is incorrect
+*** HOW
+    Key to channel map should be composed with proto:ip:port

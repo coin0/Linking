@@ -55,11 +55,17 @@ func main() {
 	}
 
 	// create perm request
-	err = client.CreatePerm([]string{"127.0.0.1", "192.168.0.14", "192.168.0.13", "192.168.0.12"})
+	err = client.CreatePerm([]string{"192.168.0.14", "192.168.0.13", "192.168.0.12"})
 	if err != nil {
 		fmt.Println("###", err)
 	}
 
+	// bind channel
+	err = client.BindChan(*conf.ClientArgs.PeerIP, *conf.ClientArgs.PeerPort)
+	if err != nil {
+		fmt.Println("###", err)
+	}
+/*
 	// send data
 	err = client.Send(*conf.ClientArgs.PeerIP, *conf.ClientArgs.PeerPort, []byte{'h','e','l','l','o'})
 	if err != nil {
@@ -75,7 +81,7 @@ func main() {
 			}
 		}
 	}()
-
+*/
 	for {
 		time.Sleep(time.Second * 10)
 	}

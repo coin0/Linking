@@ -91,6 +91,9 @@ type stunclient struct {
 	// relayed address
 	relay       *address
 
+	// channels
+	channels    map[string]uint16
+
 	// not nil if client is using UDP connection
 	udpConn     *net.UDPConn
 
@@ -789,6 +792,7 @@ func NewClient(ip string, port int, proto string) (*stunclient, error) {
 				}
 			}(proto),
 		},
+		channels: map[string]uint16{},
 	}, nil
 }
 
