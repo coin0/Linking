@@ -26,6 +26,17 @@ type argument struct {
 	Http     *string
 }
 
+type clientArgs struct {
+
+	ServerIP   *string
+	ServerPort *int
+	PeerIP     *string
+	PeerPort   *int
+	Username   *string
+	Password   *string
+}
+
 var (
-	Args     argument
+	Args       argument
+	ClientArgs clientArgs
 )

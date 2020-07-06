@@ -634,6 +634,11 @@ func (this *message) getAttrXorPeerAddresses() ([]*address, error) {
 	return results, nil
 }
 
+func (this *message) isDataIndication() bool {
+
+	return (this.method | this.encoding) == (STUN_MSG_METHOD_DATA | STUN_MSG_INDICATION)
+}
+
 func (this *message) replyAllocationRequest(alloc *allocation) (*message, error) {
 
 	msg := &message{}
@@ -1214,11 +1219,60 @@ func (cl *stunclient) transmit(msg *message) ([]byte, error) {
 
 	switch cl.remote.Proto {
 	case NET_TCP:
-	case NET_UDP: return transmitUDP(cl.remote, cl.srflx, msg)
+	case NET_UDP:
+		if cl.udpConn == nil {
+			// dial UDP to get initial udp connection
+			raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", cl.remote.IP, cl.remote.Port))
+			if err != nil {
+				return nil, fmt.Errorf("resolve UDP: %s", err)
+			}
+			var laddr *net.UDPAddr
+			if cl.srflx != nil {
+				laddr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", cl.srflx.IP, cl.srflx.Port))
+				if err != nil {
+					return nil, fmt.Errorf("resolve UDP: %s", err)
+				}
+			}
+			// save UDP connection
+			conn, err := net.DialUDP("udp", laddr, raddr)
+			if err != nil {
+				return nil, fmt.Errorf("dial UDP: %s", err)
+			}
+			cl.udpConn = conn
+		}
+		return transmitUDP(cl.udpConn, cl.remote, cl.srflx, msg)
 	case NET_TLS:
 	}
 
 	return nil, fmt.Errorf("unsupported protocol")
+}
+
+func (cl *stunclient) receive(size int) ([]byte, error) {
+
+	// this is the receiver buffer
+	buf := make([]byte, size)
+
+	if cl.remote.Proto == NET_TCP {
+		// TCP connection with server
+	} else if cl.remote.Proto == NET_UDP && cl.udpConn != nil {
+		// UDP connection with server
+		nr, err := cl.udpConn.Read(buf)
+		if err != nil {
+			return nil, fmt.Errorf("read from UDP: %s", err)
+		}
+		return buf[:nr], nil
+	}
+
+	return nil, fmt.Errorf("unsupported protocol")
+}
+
+func (cl *stunclient) Bye() error {
+
+	// close UDP connection
+	cl.udpConn.Close()
+	cl.udpConn = nil
+
+	return nil
 }
 
 func (cl *stunclient) Alloc() error {
@@ -1438,4 +1492,39 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 	}
 
 	return nil
+}
+
+func (cl *stunclient) Receive(size int) ([]byte, error) {
+
+	// start to receive data from server side
+	buf, err := cl.receive(size)
+	if err != nil {
+		return nil, fmt.Errorf("receive from UDP: %s", err)
+	}
+	if len(buf) == 0 {
+		return nil, fmt.Errorf("empty data")
+	}
+
+	// only handle STUN DATA indications and CHANNEL messages, return nothing if we receive any other
+	// STUN messages, user is supposed to make sure this method won't be called during any stun request
+	switch buf[0] & MSG_TYPE_MASK {
+	case MSG_TYPE_STUN_MSG:
+		msg, err := getMessage(buf)
+		if err != nil {
+			return nil, fmt.Errorf("invalid stun message", err)
+		}
+		msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
+		if b := msg.isDataIndication(); !b {
+			return nil, fmt.Errorf("data indication or channel data only")
+		}
+		data, err := msg.getAttrData()
+		if err != nil {
+			return nil, fmt.Errorf("invalid data indication")
+		}
+		return data, nil
+	case MSG_TYPE_CHANNELDATA:
+		return nil, fmt.Errorf("Todo")
+	}
+
+	return nil, fmt.Errorf("no connection")
 }
