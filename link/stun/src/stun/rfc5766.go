@@ -1249,7 +1249,7 @@ func (ch *channelData) print(title string) {
 
 // -------------------------------------------------------------------------------------------------
 
-func (cl *stunclient) transmit(msg *message) ([]byte, error) {
+func (cl *stunclient) transmit(buf []byte, isReq bool) ([]byte, error) {
 
 	if cl.remote == nil {
 		return nil, fmt.Errorf("remote address not specified")
@@ -1278,7 +1278,7 @@ func (cl *stunclient) transmit(msg *message) ([]byte, error) {
 			}
 			cl.udpConn = conn
 		}
-		return transmitUDP(cl.udpConn, cl.remote, cl.srflx, msg)
+		return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf, isReq)
 	case NET_TLS:
 	}
 
@@ -1318,7 +1318,7 @@ func (cl *stunclient) Alloc() error {
 	// create initial alloc request
 	req, _ := newInitAllocationRequest()
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err := cl.transmit(req)
+	buf, err := cl.transmit(req.buffer(), true)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1370,7 +1370,7 @@ func (cl *stunclient) Alloc() error {
 
 	// send subsequent request to server
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err = cl.transmit(req)
+	buf, err = cl.transmit(req.buffer(), true)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1421,7 +1421,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req)
+		buf, err := cl.transmit(req.buffer(), true)
 		if err != nil {
 			return fmt.Errorf("refresh request: %s", err)
 		}
@@ -1477,7 +1477,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req)
+		buf, err := cl.transmit(req.buffer(), true)
 		if err != nil {
 			return fmt.Errorf("create-permission request: %s", err)
 		}
@@ -1514,17 +1514,34 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 
 func (cl *stunclient) Send(ip string, port int, data []byte) error {
 
-	msg, _ := newSendIndication(
+	// check if any channel created for the peer
+	key := keygen(
 		&address{
 			IP: net.ParseIP(ip).To4(),
 			Port: port,
-		},
-		data,
-	)
-	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
+			Proto: NET_UDP,
+		},)
+	buf := []byte{}
+
+	// send data via channel if channel already exists otherwise via indication
+	if ch, ok := cl.channels[key]; ok {
+		chdata := newChannelData(ch, data)
+		chdata.print(fmt.Sprintf("client > server(%s)", cl.remote))
+		buf = chdata.buffer()
+	} else {
+		msg, _ := newSendIndication(
+			&address{
+				IP: net.ParseIP(ip).To4(),
+				Port: port,
+			},
+			data,
+		)
+		msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
+		buf = msg.buffer()
+	}
 
 	// send indication to server
-	_, err := cl.transmit(msg)
+	_, err := cl.transmit(buf, false)
 	if err != nil {
 		return fmt.Errorf("send indication: %s", err)
 	}
@@ -1549,7 +1566,7 @@ func (cl *stunclient) Receive(size int) ([]byte, error) {
 	case MSG_TYPE_STUN_MSG:
 		msg, err := getMessage(buf)
 		if err != nil {
-			return nil, fmt.Errorf("invalid stun message", err)
+			return nil, fmt.Errorf("invalid stun message: %s", err)
 		}
 		msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
 		if b := msg.isDataIndication(); !b {
@@ -1561,7 +1578,12 @@ func (cl *stunclient) Receive(size int) ([]byte, error) {
 		}
 		return data, nil
 	case MSG_TYPE_CHANNELDATA:
-		return nil, fmt.Errorf("Todo")
+		chdata, err := getChannelData(buf)
+		if err != nil {
+			return nil, fmt.Errorf("invalid channel data: %s", err)
+		}
+		chdata.print(fmt.Sprintf("server(%s) > client", cl.remote))
+		return chdata.data, nil
 	}
 
 	return nil, fmt.Errorf("no connection")
@@ -1596,7 +1618,7 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req)
+		buf, err := cl.transmit(req.buffer(), true)
 		if err != nil {
 			return fmt.Errorf("channel-bind request: %s", err)
 		}
