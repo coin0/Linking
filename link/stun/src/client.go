@@ -65,7 +65,7 @@ func main() {
 	if err != nil {
 		fmt.Println("###", err)
 	}
-/*
+
 	// send data
 	err = client.Send(*conf.ClientArgs.PeerIP, *conf.ClientArgs.PeerPort, []byte{'h','e','l','l','o'})
 	if err != nil {
@@ -81,7 +81,7 @@ func main() {
 			}
 		}
 	}()
-*/
+
 	for {
 		time.Sleep(time.Second * 10)
 	}

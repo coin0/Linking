@@ -22,6 +22,7 @@
     <2020-07-02 四 16:41> send indication
     <2020-07-06 一 13:54> data indication
     <2020-07-06 一 16:42> channel-bind request
+    <2020-07-07 二 11:54> channel-data
 *** TODO C version
     Make sure this version will keep the same interfaces with Golang version
 

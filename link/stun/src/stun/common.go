@@ -441,15 +441,15 @@ func transmitTCP(r, _ *address, data []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func transmitUDP(conn *net.UDPConn, r, l *address, msg *message) ([]byte, error) {
+func transmitUDP(conn *net.UDPConn, r, l *address, buf []byte, isReq bool) ([]byte, error) {
 
 	// send message to target server
-	_, err := conn.Write(msg.buffer())
+	_, err := conn.Write(buf)
 	if err != nil {
 		return nil, fmt.Errorf("write UDP: %s", err)
 	}
 
-	if msg.isRequest() {
+	if isReq {
 		// read message from server side
 		buf := make([]byte, DEFAULT_MTU)
 		nr, err := conn.Read(buf)
