@@ -97,6 +97,10 @@ type stunclient struct {
 	// not nil if client is using UDP connection
 	udpConn     *net.UDPConn
 
+	// not nil if using TCP
+	tcpConn     *net.TCPConn
+	tcpBuffer   []byte
+
 	// alloc lifetime
 	Lifetime    uint32
 
@@ -793,6 +797,7 @@ func NewClient(ip string, port int, proto string) (*stunclient, error) {
 			}(proto),
 		},
 		channels: map[string]uint16{},
+		tcpBuffer: []byte{},
 	}, nil
 }
 

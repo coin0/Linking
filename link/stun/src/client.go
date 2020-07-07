@@ -16,6 +16,7 @@ func init() {
 	conf.ClientArgs.PeerPort = flag.Int("pport", 0, "peer port")
 	conf.ClientArgs.Username = flag.String("u", "", "username")
 	conf.ClientArgs.Password = flag.String("p", "", "password")
+	conf.ClientArgs.Proto = flag.String("proto", "udp", "connection protocol")
 
 	flag.Parse()
 }
@@ -24,7 +25,7 @@ func main() {
 
 	fmt.Println("STUN client SDK")
 
-	client, err := stun.NewClient(*conf.ClientArgs.ServerIP, *conf.ClientArgs.ServerPort, "udp")
+	client, err := stun.NewClient(*conf.ClientArgs.ServerIP, *conf.ClientArgs.ServerPort, *conf.ClientArgs.Proto)
 	if err != nil {
 		fmt.Println("could not create client: %s", err)
 	}
@@ -78,6 +79,7 @@ func main() {
 			_, err := client.Receive(stun.DEFAULT_MTU)
 			if err != nil {
 				fmt.Println("###", err)
+				time.Sleep(time.Second * 60)
 			}
 		}
 	}()

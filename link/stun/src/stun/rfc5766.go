@@ -1249,6 +1249,61 @@ func (ch *channelData) print(title string) {
 
 // -------------------------------------------------------------------------------------------------
 
+func (cl *stunclient) connectTCP() error {
+
+	if cl.tcpConn != nil {
+		return nil
+	}
+
+	raddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", cl.remote.IP, cl.remote.Port))
+	if err != nil {
+		return fmt.Errorf("resolve TCP: %s", err)
+	}
+	var laddr *net.TCPAddr
+	if cl.srflx != nil {
+		laddr, err = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", cl.srflx.IP, cl.srflx.Port))
+		if err != nil {
+			return fmt.Errorf("resolve TCP: %s", err)
+		}
+	}
+	// save TCP connection
+	conn, err := net.DialTCP("tcp", laddr, raddr)
+	if err != nil {
+		return fmt.Errorf("dial TCP: %s", err)
+	}
+	cl.tcpConn = conn
+
+	return nil
+}
+
+func (cl *stunclient) connectUDP() error {
+
+	if cl.udpConn != nil {
+		return nil
+	}
+
+	// dial UDP to get initial udp connection
+	raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", cl.remote.IP, cl.remote.Port))
+	if err != nil {
+		return fmt.Errorf("resolve UDP: %s", err)
+	}
+	var laddr *net.UDPAddr
+	if cl.srflx != nil {
+		laddr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", cl.srflx.IP, cl.srflx.Port))
+		if err != nil {
+			return fmt.Errorf("resolve UDP: %s", err)
+		}
+	}
+	// save UDP connection
+	conn, err := net.DialUDP("udp", laddr, raddr)
+	if err != nil {
+		return fmt.Errorf("dial UDP: %s", err)
+	}
+	cl.udpConn = conn
+
+	return nil
+}
+
 func (cl *stunclient) transmit(buf []byte, isReq bool) ([]byte, error) {
 
 	if cl.remote == nil {
@@ -1257,26 +1312,13 @@ func (cl *stunclient) transmit(buf []byte, isReq bool) ([]byte, error) {
 
 	switch cl.remote.Proto {
 	case NET_TCP:
+		if err := cl.connectTCP(); err != nil {
+			return nil, err
+		}
+		return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf, isReq)
 	case NET_UDP:
-		if cl.udpConn == nil {
-			// dial UDP to get initial udp connection
-			raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", cl.remote.IP, cl.remote.Port))
-			if err != nil {
-				return nil, fmt.Errorf("resolve UDP: %s", err)
-			}
-			var laddr *net.UDPAddr
-			if cl.srflx != nil {
-				laddr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", cl.srflx.IP, cl.srflx.Port))
-				if err != nil {
-					return nil, fmt.Errorf("resolve UDP: %s", err)
-				}
-			}
-			// save UDP connection
-			conn, err := net.DialUDP("udp", laddr, raddr)
-			if err != nil {
-				return nil, fmt.Errorf("dial UDP: %s", err)
-			}
-			cl.udpConn = conn
+		if err := cl.connectUDP(); err != nil {
+			return nil, err
 		}
 		return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf, isReq)
 	case NET_TLS:
@@ -1290,8 +1332,23 @@ func (cl *stunclient) receive(size int) ([]byte, error) {
 	// this is the receiver buffer
 	buf := make([]byte, size)
 
-	if cl.remote.Proto == NET_TCP {
+	if cl.remote.Proto == NET_TCP && cl.tcpConn != nil {
 		// TCP connection with server
+		nr, err := cl.tcpConn.Read(buf)
+		if err != nil {
+			return nil, fmt.Errorf("read from TCP: %s", err)
+		}
+
+		// each time we only decode 1 stun message or channel data
+		cl.tcpBuffer = append(cl.tcpBuffer, buf[:nr]...)
+		var one []byte
+		one, cl.tcpBuffer, err = decodeTCP(cl.tcpBuffer)
+		if err != nil {
+			if len(cl.tcpBuffer) > TCP_MAX_BUF_SIZE {
+				cl.tcpBuffer = []byte{}
+			}
+		}
+		return one, nil
 	} else if cl.remote.Proto == NET_UDP && cl.udpConn != nil {
 		// UDP connection with server
 		nr, err := cl.udpConn.Read(buf)
@@ -1309,6 +1366,10 @@ func (cl *stunclient) Bye() error {
 	// close UDP connection
 	cl.udpConn.Close()
 	cl.udpConn = nil
+
+	// close TCP connection
+	cl.tcpConn.Close()
+	cl.tcpConn = nil
 
 	return nil
 }
@@ -1528,6 +1589,17 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 		chdata := newChannelData(ch, data)
 		chdata.print(fmt.Sprintf("client > server(%s)", cl.remote))
 		buf = chdata.buffer()
+
+		// https://tools.ietf.org/html/rfc5766#section-11.5
+		// over TCP and TLS-over-TCP, the ChannelData message MUST be padded to a multiple of four bytes
+		if cl.remote.Proto == NET_TCP || cl.remote.Proto == NET_TLS {
+			roundup := 0
+			if len(buf) %4 != 0 {
+				roundup = 4 - len(buf) %4
+			}
+			pad := make([]byte, roundup)
+			buf = append(buf, pad...)
+		}
 	} else {
 		msg, _ := newSendIndication(
 			&address{
@@ -1554,7 +1626,7 @@ func (cl *stunclient) Receive(size int) ([]byte, error) {
 	// start to receive data from server side
 	buf, err := cl.receive(size)
 	if err != nil {
-		return nil, fmt.Errorf("receive from UDP: %s", err)
+		return nil, fmt.Errorf("%s", err)
 	}
 	if len(buf) == 0 {
 		return nil, fmt.Errorf("empty data")
