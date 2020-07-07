@@ -34,6 +34,7 @@ type clientArgs struct {
 	PeerPort   *int
 	Username   *string
 	Password   *string
+	Proto      *string
 }
 
 var (

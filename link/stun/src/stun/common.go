@@ -211,6 +211,11 @@ func decodeTCP(req []byte) ([]byte, []byte, error) {
 			roundup = 4 - len(buf) % 4
 		}
 
+		// if incoming channel data does not contain round up bytes, return and wait for next part
+		if len(buf) + roundup > len(req) {
+			return nil, req, fmt.Errorf("invalid channel data: no round up")
+		}
+
 		return buf, req[len(buf)+roundup:], nil
 	}
 
@@ -436,7 +441,24 @@ func (addr *address) String() string {
 
 // TransmitTCP() and TransmitUDP() are used by stun clients
 
-func transmitTCP(r, _ *address, data []byte) ([]byte, error) {
+func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte, isReq bool) ([]byte, error) {
+
+	// send message to target server
+	_, err := conn.Write(buf)
+	if err != nil {
+		return nil, fmt.Errorf("write TCP: %s", err)
+	}
+
+	if isReq {
+		// read message from server side
+		buf := make([]byte, DEFAULT_MTU)
+		nr, err := conn.Read(buf)
+		if err != nil {
+			return nil, fmt.Errorf("read TCP: %s", err)
+		}
+
+		return buf[:nr], nil
+	}
 
 	return nil, nil
 }

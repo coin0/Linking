@@ -13,7 +13,7 @@
 ** TODO finish STM32F1 ref code for OV7725 or OV7060
    VGA/QVGA bitmap sampling module to get data for video/picutre process
 ** TODO STUN client sdk
-*** TODO Golang version <2020-06-30 二 10:19>
+*** DONE Golang version <2020-06-30 二 10:19>
     Should complete most of func and would be the prototype for C version sdk
     <2020-07-01 三 10:53> binding request
     <2020-07-01 三 18:43> alloc request
@@ -23,6 +23,7 @@
     <2020-07-06 一 13:54> data indication
     <2020-07-06 一 16:42> channel-bind request
     <2020-07-07 二 11:54> channel-data
+    <2020-07-07 二 15:32> TCP connection
 *** TODO C version
     Make sure this version will keep the same interfaces with Golang version
 
@@ -89,3 +90,35 @@
     Review the code in rfc5766, channels are saved by the key made from simple ip address, this is incorrect
 *** HOW
     Key to channel map should be composed with proto:ip:port
+** DONE link/stun:server:crash in decodeTCP, slice out of range when handling roudup for channel data :p1:
+*** WHAT
+    panic: runtime error: slice bounds out of range
+
+    goroutine 34 [running]:
+    stun.decodeTCP(0xc8200e3ef4, 0x9, 0xc, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, ...)
+      /opt2/work/Linking/link/stun/src/stun/common.go:214 +0x334
+    stun.ListenTCP.func1(0xc8200dc008)
+      /opt2/work/Linking/link/stun/src/stun/common.go:125 +0x5c2
+    created by stun.ListenTCP
+      /opt2/work/Linking/link/stun/src/stun/common.go:139 +0x4d1
+
+*** WHEN
+    <2020-07-07 二 14:50>
+*** WHO
+    coin0
+*** WHY
+    invalid client will probably send non-rouded up channel data which will make server panic
+*** HOW
+    check buffer size and drop this invalid channel data
+    <2020-07-07 二 15:06> verified
+
+** TODO link/stun:server:investigate if channel data would be rounded up when sending to peer over TCP connection :p2:
+*** WHAT
+    Peer with TCP connection will drop lots of channel data messages
+*** WHEN
+    legacy issues
+*** WHO
+    coin0
+*** WHY
+    1 UDP peer and 1 TCP peer, if UDP peer sends unpadded channel data to TCP peer, it is possible that this message will be dropped due to requirement of https://tools.ietf.org/html/rfc5766#section-11.5
+*** HOW
