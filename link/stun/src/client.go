@@ -79,13 +79,18 @@ func main() {
 			_, err := client.Receive(stun.DEFAULT_MTU)
 			if err != nil {
 				fmt.Println("###", err)
-				time.Sleep(time.Second * 60)
 			}
 		}
 	}()
 
 	for {
 		time.Sleep(time.Second * 10)
+
+		err = client.Refresh(client.Lifetime)
+		if err != nil {
+			fmt.Println("###", err)
+		}
+
 	}
 
 	return

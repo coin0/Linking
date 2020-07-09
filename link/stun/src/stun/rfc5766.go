@@ -1304,7 +1304,14 @@ func (cl *stunclient) connectUDP() error {
 	return nil
 }
 
-func (cl *stunclient) transmit(buf []byte, isReq bool) ([]byte, error) {
+func (cl *stunclient) transmit(buf []byte, waitResp bool) ([]byte, error) {
+
+	// when isRecvDone=false, transmit() should not try to receive any response from server
+	cl.recvLck.RLock()
+	defer cl.recvLck.RUnlock()
+	if !cl.isRecvDone {
+		waitResp = false
+	}
 
 	if cl.remote == nil {
 		return nil, fmt.Errorf("remote address not specified")
@@ -1315,12 +1322,12 @@ func (cl *stunclient) transmit(buf []byte, isReq bool) ([]byte, error) {
 		if err := cl.connectTCP(); err != nil {
 			return nil, err
 		}
-		return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf, isReq)
+		return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf, waitResp)
 	case NET_UDP:
 		if err := cl.connectUDP(); err != nil {
 			return nil, err
 		}
-		return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf, isReq)
+		return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf, waitResp)
 	case NET_TLS:
 	}
 
@@ -1328,6 +1335,23 @@ func (cl *stunclient) transmit(buf []byte, isReq bool) ([]byte, error) {
 }
 
 func (cl *stunclient) receive(size int) ([]byte, error) {
+
+	// when recive() is blocked by tcp/udp Read(), we must prevent other requests
+	// from reusing sockets to receive data, we lock receive() so that transmit()
+	// will not read response from server side
+
+	// lock receive()
+	func() {
+		cl.recvLck.Lock()
+		defer cl.recvLck.Unlock()
+		cl.isRecvDone = false
+	}()
+	// unlock receive()
+	defer func(){
+		cl.recvLck.Lock()
+		defer cl.recvLck.Unlock()
+		cl.isRecvDone = true
+	}()
 
 	// this is the receiver buffer
 	buf := make([]byte, size)

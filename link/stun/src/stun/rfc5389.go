@@ -4,6 +4,7 @@ import (
 	"net"
 	"fmt"
 	"time"
+	"sync"
 	"math/rand"
 	"encoding/binary"
 	"crypto/hmac"
@@ -93,6 +94,10 @@ type stunclient struct {
 
 	// channels
 	channels    map[string]uint16
+
+	// when receive() is reading data, transmit() should not expect response
+	isRecvDone bool
+	recvLck    *sync.RWMutex
 
 	// not nil if client is using UDP connection
 	udpConn     *net.UDPConn
@@ -798,6 +803,8 @@ func NewClient(ip string, port int, proto string) (*stunclient, error) {
 		},
 		channels: map[string]uint16{},
 		tcpBuffer: []byte{},
+		isRecvDone: true,
+		recvLck: &sync.RWMutex{},
 	}, nil
 }
 

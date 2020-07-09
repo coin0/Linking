@@ -441,7 +441,7 @@ func (addr *address) String() string {
 
 // TransmitTCP() and TransmitUDP() are used by stun clients
 
-func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte, isReq bool) ([]byte, error) {
+func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte, waitResp bool) ([]byte, error) {
 
 	// send message to target server
 	_, err := conn.Write(buf)
@@ -449,7 +449,7 @@ func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte, isReq bool) ([]by
 		return nil, fmt.Errorf("write TCP: %s", err)
 	}
 
-	if isReq {
+	if waitResp {
 		// read message from server side
 		buf := make([]byte, DEFAULT_MTU)
 		nr, err := conn.Read(buf)
@@ -463,7 +463,7 @@ func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte, isReq bool) ([]by
 	return nil, nil
 }
 
-func transmitUDP(conn *net.UDPConn, r, l *address, buf []byte, isReq bool) ([]byte, error) {
+func transmitUDP(conn *net.UDPConn, r, l *address, buf []byte, waitResp bool) ([]byte, error) {
 
 	// send message to target server
 	_, err := conn.Write(buf)
@@ -471,7 +471,7 @@ func transmitUDP(conn *net.UDPConn, r, l *address, buf []byte, isReq bool) ([]by
 		return nil, fmt.Errorf("write UDP: %s", err)
 	}
 
-	if isReq {
+	if waitResp {
 		// read message from server side
 		buf := make([]byte, DEFAULT_MTU)
 		nr, err := conn.Read(buf)
