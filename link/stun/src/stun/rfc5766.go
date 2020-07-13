@@ -1304,16 +1304,8 @@ func (cl *stunclient) transmit(buf []byte, waitResp bool) ([]byte, error) {
 	}
 
 	switch cl.remote.Proto {
-	case NET_TCP:
-		if err := cl.connectTCP(); err != nil {
-			return nil, err
-		}
-		return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf, waitResp)
-	case NET_UDP:
-		if err := cl.connectUDP(); err != nil {
-			return nil, err
-		}
-		return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf, waitResp)
+	case NET_TCP: return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf, waitResp)
+	case NET_UDP: return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf, waitResp)
 	case NET_TLS:
 	}
 
