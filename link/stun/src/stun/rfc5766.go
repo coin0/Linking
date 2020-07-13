@@ -147,6 +147,53 @@ type channelData struct {
 	data        []byte
 }
 
+type stunclient struct {
+	// long-term credential
+	Username    string
+	Password    string
+
+	// realm
+	realm       string
+
+	// nonce
+	nonce       string
+
+	// server address
+	remote      *address
+
+	// reflexive address
+	srflx       *address
+
+	// relayed address
+	relay       *address
+
+	// channels
+	channels    map[string]uint16
+
+	// when receive() is reading data, transmit() should not expect response
+	isRecvDone bool
+	recvLck    *sync.RWMutex
+
+	// not nil if client is using UDP connection
+	udpConn     *net.UDPConn
+
+	// not nil if using TCP
+	tcpConn     *net.TCPConn
+	tcpBuffer   []byte
+
+	// alloc lifetime
+	Lifetime    uint32
+
+	// DONT-FRAGMENT
+	NoFragment  bool
+
+	// EVEN-PORT
+	EvenPort    bool
+
+	// 8-byte reservation token
+	ReservToken []byte
+}
+
 var (
 	allocPool = &turnpool{
 		table: map[string]*allocation{},
@@ -1248,6 +1295,36 @@ func (ch *channelData) print(title string) {
 }
 
 // -------------------------------------------------------------------------------------------------
+
+func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
+
+	// initialize the client
+	cl = &stunclient{
+		remote: &address{
+			IP: net.ParseIP(ip),
+			Port: port,
+		},
+		channels: map[string]uint16{},
+		tcpBuffer: []byte{},
+		isRecvDone: true,
+		recvLck: &sync.RWMutex{},
+	}
+
+	// try to connect to remote server by given protocol
+	cl.remote.Proto = func(p string) byte {
+		switch p {
+		case "tcp": err = cl.connectTCP(); return NET_TCP
+		case "udp": err = cl.connectUDP(); return NET_UDP
+		case "tls": return NET_TLS
+		default: err = cl.connectUDP(); return NET_UDP // default type
+		}
+	}(proto)
+
+	if err != nil {
+		cl = nil
+	}
+	return
+}
 
 func (cl *stunclient) connectTCP() error {
 
