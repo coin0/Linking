@@ -786,26 +786,34 @@ func (this *message) checkCredential() (code int, err error) {
 
 // -------------------------------------------------------------------------------------------------
 
-func NewClient(ip string, port int, proto string) (*stunclient, error) {
+func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 
-	return &stunclient{
+	// initialize the client
+	cl = &stunclient{
 		remote: &address{
 			IP: net.ParseIP(ip),
 			Port: port,
-			Proto: func(p string) byte {
-				switch p {
-				case "tcp": return NET_TCP
-				case "udp": return NET_UDP
-				case "tls": return NET_TLS
-				default: return NET_UDP // default type
-				}
-			}(proto),
 		},
 		channels: map[string]uint16{},
 		tcpBuffer: []byte{},
 		isRecvDone: true,
 		recvLck: &sync.RWMutex{},
-	}, nil
+	}
+
+	// try to connect to remote server by given protocol
+	cl.remote.Proto = func(p string) byte {
+		switch p {
+		case "tcp": err = cl.connectTCP(); return NET_TCP
+		case "udp": err = cl.connectUDP(); return NET_UDP
+		case "tls": return NET_TLS
+		default: err = cl.connectUDP(); return NET_UDP // default type
+		}
+	}(proto)
+
+	if err != nil {
+		cl = nil
+	}
+	return
 }
 
 func (cl *stunclient) Bind() (err error) {
