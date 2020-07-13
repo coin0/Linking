@@ -1259,15 +1259,8 @@ func (cl *stunclient) connectTCP() error {
 	if err != nil {
 		return fmt.Errorf("resolve TCP: %s", err)
 	}
-	var laddr *net.TCPAddr
-	if cl.srflx != nil {
-		laddr, err = net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", cl.srflx.IP, cl.srflx.Port))
-		if err != nil {
-			return fmt.Errorf("resolve TCP: %s", err)
-		}
-	}
 	// save TCP connection
-	conn, err := net.DialTCP("tcp", laddr, raddr)
+	conn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
 		return fmt.Errorf("dial TCP: %s", err)
 	}
@@ -1287,15 +1280,8 @@ func (cl *stunclient) connectUDP() error {
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
-	var laddr *net.UDPAddr
-	if cl.srflx != nil {
-		laddr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", cl.srflx.IP, cl.srflx.Port))
-		if err != nil {
-			return fmt.Errorf("resolve UDP: %s", err)
-		}
-	}
 	// save UDP connection
-	conn, err := net.DialUDP("udp", laddr, raddr)
+	conn, err := net.DialUDP("udp", nil, raddr)
 	if err != nil {
 		return fmt.Errorf("dial UDP: %s", err)
 	}
