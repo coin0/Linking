@@ -163,6 +163,15 @@ func (this *message) buffer() []byte {
 	return payload
 }
 
+func (this *message) transactionIDString() (str string) {
+
+	for _, v := range this.transactionID {
+		str += fmt.Sprintf("%02x", v)
+	}
+
+	return str
+}
+
 // this function is only used to compute message integrity value
 func (this *message) bufferExIntegrityAttr() []byte {
 
@@ -275,6 +284,11 @@ func (this *message) isRequest() bool {
 func (this *message) isIndication() bool {
 
 	return this.encoding == STUN_MSG_INDICATION
+}
+
+func (this *message) isResponse() bool {
+
+	return this.encoding == STUN_MSG_SUCCESS || this.encoding == STUN_MSG_ERROR
 }
 
 func (this *message) isBindingRequest() bool {
@@ -743,7 +757,7 @@ func (cl *stunclient) Bind() (err error) {
 	// create request
 	msg, _ := newBindingRequest()
 	msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	resp, err := cl.transmit(msg.buffer(), true)
+	resp, err := cl.transmitMessage(msg)
 	if err != nil {
 		return fmt.Errorf("binding request: %s", err)
 	}
