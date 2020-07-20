@@ -63,6 +63,11 @@ const (
 	STUN_ERR_INSUFFICIENT_CAP    = 508
 )
 
+const (
+	STUN_CLIENT_REQUEST_TIMEOUT  = 10
+	STUN_CLIENT_DATA_LISTENER    = "DATA"
+)
+
 type turnpool struct {
 	// allocation struct map
 	table      map[string]*allocation
@@ -170,16 +175,16 @@ type stunclient struct {
 	// channels
 	channels    map[string]uint16
 
-	// when receive() is reading data, transmit() should not expect response
-	isRecvDone bool
-	recvLck    *sync.RWMutex
-
 	// not nil if client is using UDP connection
 	udpConn     *net.UDPConn
 
 	// not nil if using TCP
 	tcpConn     *net.TCPConn
 	tcpBuffer   []byte
+
+	// message listener list
+	subscribers map[string]*subclient
+	subLock     *sync.RWMutex
 
 	// alloc lifetime
 	Lifetime    uint32
@@ -192,6 +197,11 @@ type stunclient struct {
 
 	// 8-byte reservation token
 	ReservToken []byte
+}
+
+type subclient struct {
+	transactionID   []byte
+	listener        chan []byte
 }
 
 var (
@@ -1306,8 +1316,8 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 		},
 		channels: map[string]uint16{},
 		tcpBuffer: []byte{},
-		isRecvDone: true,
-		recvLck: &sync.RWMutex{},
+		subscribers: map[string]*subclient{},
+		subLock: &sync.RWMutex{},
 	}
 
 	// try to connect to remote server by given protocol
@@ -1322,6 +1332,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 
 	if err != nil {
 		cl = nil
+		return
 	}
 	return
 }
@@ -1342,6 +1353,8 @@ func (cl *stunclient) connectTCP() error {
 		return fmt.Errorf("dial TCP: %s", err)
 	}
 	cl.tcpConn = conn
+
+	go cl.receiveTCP()
 
 	return nil
 }
@@ -1364,91 +1377,163 @@ func (cl *stunclient) connectUDP() error {
 	}
 	cl.udpConn = conn
 
+	go cl.receiveUDP()
+
 	return nil
 }
 
-func (cl *stunclient) transmit(buf []byte, waitResp bool) ([]byte, error) {
+func (cl *stunclient) receiveTCP() error {
 
-	// when isRecvDone=false, transmit() should not try to receive any response from server
-	cl.recvLck.RLock()
-	defer cl.recvLck.RUnlock()
-	if !cl.isRecvDone {
-		waitResp = false
+	for {
+		// this is the receiver buffer
+		buf := make([]byte, DEFAULT_MTU)
+
+		if cl.tcpConn != nil {
+			// TCP connection with server
+			nr, err := cl.tcpConn.Read(buf)
+			if err != nil {
+				return fmt.Errorf("read from TCP: %s", err)
+			}
+
+			// each time we only decode 1 stun message or channel data
+			cl.tcpBuffer = append(cl.tcpBuffer, buf[:nr]...)
+			var one []byte
+			one, cl.tcpBuffer, err = decodeTCP(cl.tcpBuffer)
+			if err != nil {
+				if len(cl.tcpBuffer) > TCP_MAX_BUF_SIZE {
+					cl.tcpBuffer = []byte{}
+				}
+			}
+
+			cl.receive(one)
+		}
+	}
+}
+
+func (cl *stunclient) receiveUDP() error {
+
+	for {
+		buf := make([]byte, DEFAULT_MTU)
+
+		if cl.udpConn != nil {
+			// UDP connection with server
+			nr, err := cl.udpConn.Read(buf)
+			if err != nil {
+				return fmt.Errorf("read from UDP: %s", err)
+			}
+
+			cl.receive(buf[:nr])
+		}
+	}
+}
+
+func (cl *stunclient) receive(data []byte) error {
+
+	cl.subLock.RLock()
+	defer cl.subLock.RUnlock()
+
+	if len(data) == 0 {
+		return fmt.Errorf("no data")
 	}
 
+	switch data[0] & MSG_TYPE_MASK {
+	case MSG_TYPE_STUN_MSG:
+		// handle stun messages
+		msg, err := getMessage(data)
+		if err != nil {
+			return fmt.Errorf("invalid message")
+		}
+		if msg.isResponse() {
+			if _, ok := cl.subscribers[msg.transactionIDString()]; !ok {
+				return fmt.Errorf("transaction ID not found: %s", msg.transactionIDString())
+			}
+			cl.subscribers[msg.transactionIDString()].listener <-data
+			return nil
+		}
+	case MSG_TYPE_CHANNELDATA:
+		// handle channelData
+	}
+
+	if _, ok := cl.subscribers[STUN_CLIENT_DATA_LISTENER]; !ok {
+		return nil // just drop data since no receiver is avaialble 
+	}
+	cl.subscribers[STUN_CLIENT_DATA_LISTENER].listener <-data
+
+	return nil
+}
+
+func (cl *stunclient) transmit(buf []byte) error {
+
 	if cl.remote == nil {
-		return nil, fmt.Errorf("remote address not specified")
+		return fmt.Errorf("remote address not specified")
 	}
 
 	switch cl.remote.Proto {
-	case NET_TCP: return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf, waitResp)
-	case NET_UDP: return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf, waitResp)
+	case NET_TCP: return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf)
+	case NET_UDP: return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf)
 	case NET_TLS:
 	}
 
-	return nil, fmt.Errorf("unsupported protocol")
+	return fmt.Errorf("unsupported protocol")
 }
 
-func (cl *stunclient) receive(size int) ([]byte, error) {
+func (cl *stunclient) transmitMessage(m *message) (resp []byte, err error) {
 
-	// when recive() is blocked by tcp/udp Read(), we must prevent other requests
-	// from reusing sockets to receive data, we lock receive() so that transmit()
-	// will not read response from server side
+	resp = nil
+	err = nil
 
-	// lock receive()
-	func() {
-		cl.recvLck.Lock()
-		defer cl.recvLck.Unlock()
-		cl.isRecvDone = false
-	}()
-	// unlock receive()
-	defer func(){
-		cl.recvLck.Lock()
-		defer cl.recvLck.Unlock()
-		cl.isRecvDone = true
-	}()
+	// if this is a request, we should wait for response
+	if m.isRequest() {
+		wg := &sync.WaitGroup{}
+		ech := make(chan error)
 
-	// this is the receiver buffer
-	buf := make([]byte, size)
-
-	if cl.remote.Proto == NET_TCP && cl.tcpConn != nil {
-		// TCP connection with server
-		nr, err := cl.tcpConn.Read(buf)
-		if err != nil {
-			return nil, fmt.Errorf("read from TCP: %s", err)
+		// add response listener
+		cl.subLock.Lock()
+		cl.subscribers[m.transactionIDString()] = &subclient{
+			transactionID: m.transactionID,
+			listener: make(chan []byte),
 		}
+		cl.subLock.Unlock()
 
-		// each time we only decode 1 stun message or channel data
-		cl.tcpBuffer = append(cl.tcpBuffer, buf[:nr]...)
-		var one []byte
-		one, cl.tcpBuffer, err = decodeTCP(cl.tcpBuffer)
-		if err != nil {
-			if len(cl.tcpBuffer) > TCP_MAX_BUF_SIZE {
-				cl.tcpBuffer = []byte{}
+		// remove listener
+		defer func() {
+			cl.subLock.Lock()
+			delete(cl.subscribers, m.transactionIDString())
+			cl.subLock.Unlock()
+		}()
+
+		// goroutine will wait for response or timeout
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case <-time.NewTimer(time.Second * STUN_CLIENT_REQUEST_TIMEOUT).C:
+				err = fmt.Errorf("timeout")
+			case resp = <-cl.subscribers[m.transactionIDString()].listener:
+			case err = <-ech:
 			}
+		}()
+
+		// main thread will send data and wait for goroutine to return
+		e := cl.transmit(m.buffer())
+		if e != nil {
+			ech <- e
 		}
-		return one, nil
-	} else if cl.remote.Proto == NET_UDP && cl.udpConn != nil {
-		// UDP connection with server
-		nr, err := cl.udpConn.Read(buf)
-		if err != nil {
-			return nil, fmt.Errorf("read from UDP: %s", err)
-		}
-		return buf[:nr], nil
+		wg.Wait()
+	} else {
+		err = cl.transmit(m.buffer())
 	}
 
-	return nil, fmt.Errorf("unsupported protocol")
+	return
 }
 
 func (cl *stunclient) Bye() error {
 
 	// close UDP connection
 	cl.udpConn.Close()
-	cl.udpConn = nil
 
 	// close TCP connection
 	cl.tcpConn.Close()
-	cl.tcpConn = nil
 
 	return nil
 }
@@ -1458,7 +1543,7 @@ func (cl *stunclient) Alloc() error {
 	// create initial alloc request
 	req, _ := newInitAllocationRequest()
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err := cl.transmit(req.buffer(), true)
+	buf, err := cl.transmitMessage(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1510,7 +1595,7 @@ func (cl *stunclient) Alloc() error {
 
 	// send subsequent request to server
 	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
-	buf, err = cl.transmit(req.buffer(), true)
+	buf, err = cl.transmitMessage(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
 	}
@@ -1561,7 +1646,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req.buffer(), true)
+		buf, err := cl.transmitMessage(req)
 		if err != nil {
 			return fmt.Errorf("refresh request: %s", err)
 		}
@@ -1617,7 +1702,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req.buffer(), true)
+		buf, err := cl.transmitMessage(req)
 		if err != nil {
 			return fmt.Errorf("create-permission request: %s", err)
 		}
@@ -1691,53 +1776,84 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 		buf = msg.buffer()
 	}
 
-	// send indication to server
-	_, err := cl.transmit(buf, false)
+	// send channel data / indication to server
+	err := cl.transmit(buf)
 	if err != nil {
-		return fmt.Errorf("send indication: %s", err)
+		return fmt.Errorf("send data: %s", err)
 	}
 
 	return nil
 }
 
-func (cl *stunclient) Receive(size int) ([]byte, error) {
+func (cl *stunclient) Receive(cb func([]byte, error)int) error {
 
-	// start to receive data from server side
-	buf, err := cl.receive(size)
-	if err != nil {
-		return nil, fmt.Errorf("%s", err)
-	}
-	if len(buf) == 0 {
-		return nil, fmt.Errorf("empty data")
+	go cl.receiveLoop(cb)
+
+	return nil
+}
+
+func (cl *stunclient) receiveLoop(cb func([]byte, error)int) error {
+
+	// register listener to receive data
+	func() {
+		cl.subLock.Lock()
+		defer cl.subLock.Unlock()
+
+		// add response listener
+		cl.subscribers[STUN_CLIENT_DATA_LISTENER] = &subclient{
+			transactionID: nil,
+			listener: make(chan []byte),
+		}
+	}()
+
+	// delete listener
+	defer func() {
+		cl.subLock.Lock()
+		defer cl.subLock.Unlock()
+		delete(cl.subscribers, STUN_CLIENT_DATA_LISTENER)
+	}()
+
+	st := 0
+
+	for {
+		// start to receive data from server side
+		buf := <- cl.subscribers[STUN_CLIENT_DATA_LISTENER].listener
+		if len(buf) == 0 {
+			st = cb(nil, fmt.Errorf("empty data"))
+		}
+
+		// only handle STUN DATA indications and CHANNEL messages, return nothing if we receive any other
+		// STUN messages, user is supposed to make sure this method won't be called during any stun request
+		switch buf[0] & MSG_TYPE_MASK {
+		case MSG_TYPE_STUN_MSG:
+			msg, err := getMessage(buf)
+			if err != nil {
+				st = cb(nil, fmt.Errorf("invalid stun message: %s", err))
+			}
+			msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
+			if b := msg.isDataIndication(); !b {
+				st = cb(nil, fmt.Errorf("data indication or channel data only"))
+			}
+			data, err := msg.getAttrData()
+			if err != nil {
+				st = cb(nil, fmt.Errorf("invalid data indication"))
+			}
+			st = cb(data, nil)
+		case MSG_TYPE_CHANNELDATA:
+			chdata, err := getChannelData(buf)
+			if err != nil {
+				st = cb(nil, fmt.Errorf("invalid channel data: %s", err))
+			}
+			chdata.print(fmt.Sprintf("server(%s) > client", cl.remote))
+			st = cb(chdata.data, nil)
+		}
+
+		if st != 0 {
+			break
+		}
 	}
 
-	// only handle STUN DATA indications and CHANNEL messages, return nothing if we receive any other
-	// STUN messages, user is supposed to make sure this method won't be called during any stun request
-	switch buf[0] & MSG_TYPE_MASK {
-	case MSG_TYPE_STUN_MSG:
-		msg, err := getMessage(buf)
-		if err != nil {
-			return nil, fmt.Errorf("invalid stun message: %s", err)
-		}
-		msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
-		if b := msg.isDataIndication(); !b {
-			return nil, fmt.Errorf("data indication or channel data only")
-		}
-		data, err := msg.getAttrData()
-		if err != nil {
-			return nil, fmt.Errorf("invalid data indication")
-		}
-		return data, nil
-	case MSG_TYPE_CHANNELDATA:
-		chdata, err := getChannelData(buf)
-		if err != nil {
-			return nil, fmt.Errorf("invalid channel data: %s", err)
-		}
-		chdata.print(fmt.Sprintf("server(%s) > client", cl.remote))
-		return chdata.data, nil
-	}
-
-	return nil, fmt.Errorf("no connection")
+	return nil
 }
 
 func (cl *stunclient) getChan(peer *address, needRenew bool) uint16 {
@@ -1769,7 +1885,7 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
 
 		// send request to server
-		buf, err := cl.transmit(req.buffer(), true)
+		buf, err := cl.transmitMessage(req)
 		if err != nil {
 			return fmt.Errorf("channel-bind request: %s", err)
 		}

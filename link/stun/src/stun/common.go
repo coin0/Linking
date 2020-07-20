@@ -441,46 +441,24 @@ func (addr *address) String() string {
 
 // TransmitTCP() and TransmitUDP() are used by stun clients
 
-func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte, waitResp bool) ([]byte, error) {
+func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte) error {
 
 	// send message to target server
 	_, err := conn.Write(buf)
 	if err != nil {
-		return nil, fmt.Errorf("write TCP: %s", err)
+		return fmt.Errorf("write TCP: %s", err)
 	}
 
-	if waitResp {
-		// read message from server side
-		buf := make([]byte, DEFAULT_MTU)
-		nr, err := conn.Read(buf)
-		if err != nil {
-			return nil, fmt.Errorf("read TCP: %s", err)
-		}
-
-		return buf[:nr], nil
-	}
-
-	return nil, nil
+	return nil
 }
 
-func transmitUDP(conn *net.UDPConn, r, l *address, buf []byte, waitResp bool) ([]byte, error) {
+func transmitUDP(conn *net.UDPConn, r, l *address, buf []byte) error {
 
 	// send message to target server
 	_, err := conn.Write(buf)
 	if err != nil {
-		return nil, fmt.Errorf("write UDP: %s", err)
+		return fmt.Errorf("write UDP: %s", err)
 	}
 
-	if waitResp {
-		// read message from server side
-		buf := make([]byte, DEFAULT_MTU)
-		nr, err := conn.Read(buf)
-		if err != nil {
-			return nil, fmt.Errorf("read UDP: %s", err)
-		}
-
-		return buf[:nr], nil
-	}
-
-	return nil, nil
+	return nil
 }

@@ -74,15 +74,17 @@ func main() {
 	}
 
 	// receive data
-	go func() {
-		for {
-			_, err := client.Receive(stun.DEFAULT_MTU)
-			if err != nil {
-				fmt.Println("###", err)
-			}
-		}
-	}()
+	client.Receive(func(data []byte, err error) int {
 
+		if err != nil {
+			fmt.Println("###", err)
+			return -1
+		}
+
+		return 0
+	})
+
+	// keep refreshing
 	for {
 		time.Sleep(time.Second * 10)
 
