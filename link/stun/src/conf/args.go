@@ -28,13 +28,12 @@ type argument struct {
 
 type clientArgs struct {
 
-	ServerIP   *string
-	ServerPort *int
-	PeerIP     *string
-	PeerPort   *int
+	ServerIP   string
+	ServerPort int
+	Proto      string
 	Username   *string
 	Password   *string
-	Proto      *string
+	Debug      *bool
 }
 
 var (
