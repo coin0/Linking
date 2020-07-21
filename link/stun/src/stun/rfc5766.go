@@ -1748,38 +1748,52 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 		},)
 	buf := []byte{}
 
-	// send data via channel if channel already exists otherwise via indication
-	if ch, ok := cl.channels[key]; ok {
-		chdata := newChannelData(ch, data)
-		chdata.print(fmt.Sprintf("client > server(%s)", cl.remote))
-		buf = chdata.buffer()
 
-		// https://tools.ietf.org/html/rfc5766#section-11.5
-		// over TCP and TLS-over-TCP, the ChannelData message MUST be padded to a multiple of four bytes
-		if cl.remote.Proto == NET_TCP || cl.remote.Proto == NET_TLS {
-			roundup := 0
-			if len(buf) %4 != 0 {
-				roundup = 4 - len(buf) %4
+	for i :=0; i < len(data); {
+
+		// send data via channel if channel already exists otherwise via indication
+		if ch, ok := cl.channels[key]; ok {
+			chdata := newChannelData(ch, data[i:])
+			chdata.print(fmt.Sprintf("client > server(%s)", cl.remote))
+			buf = chdata.buffer()
+
+			// https://tools.ietf.org/html/rfc5766#section-11.5
+			// over TCP and TLS-over-TCP, the ChannelData message MUST be padded to a multiple
+			// of four bytes
+			if cl.remote.Proto == NET_TCP || cl.remote.Proto == NET_TLS {
+				roundup := 0
+				if len(buf) %4 != 0 {
+					roundup = 4 - len(buf) %4
+				}
+				pad := make([]byte, roundup)
+				buf = append(buf, pad...)
 			}
-			pad := make([]byte, roundup)
-			buf = append(buf, pad...)
+		} else {
+			msg, _ := newSendIndication(
+				&address{
+					IP: net.ParseIP(ip).To4(),
+					Port: port,
+				},
+				data[i:],
+			)
+			msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
+			buf = msg.buffer()
 		}
-	} else {
-		msg, _ := newSendIndication(
-			&address{
-				IP: net.ParseIP(ip).To4(),
-				Port: port,
-			},
-			data,
-		)
-		msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
-		buf = msg.buffer()
-	}
 
-	// send channel data / indication to server
-	err := cl.transmit(buf)
-	if err != nil {
-		return fmt.Errorf("send data: %s", err)
+		// size should be lower than MTU
+		if len(buf) > DEFAULT_MTU {
+			sz := len(data[i:]) - (len(buf) - DEFAULT_MTU)
+			i += sz // relocate rest buffer
+			buf = buf[:DEFAULT_MTU]
+		} else {
+			i = len(data)
+		}
+
+		// send channel data / indication to server
+		err := cl.transmit(buf)
+		if err != nil {
+			return fmt.Errorf("send data: %s", err)
+		}
 	}
 
 	return nil
