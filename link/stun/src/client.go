@@ -134,6 +134,10 @@ func main() {
 				}
 				return 0
 			})
+			fmt.Println("OK")
+		case 'd':
+			client.Bye()
+			fmt.Println("OK")
 		default:
 			err = fmt.Errorf("invalid command")
 		}
