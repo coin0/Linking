@@ -644,7 +644,7 @@ func (this *message) getAttrData() ([]byte, error) {
 		return nil, fmt.Errorf("not found")
 	}
 
-	return attr.value, nil
+	return attr.value[:attr.length], nil
 }
 
 func (this *message) getAttrChanNumber() (uint16, error) {
@@ -1530,10 +1530,10 @@ func (cl *stunclient) transmitMessage(m *message) (resp []byte, err error) {
 func (cl *stunclient) Bye() error {
 
 	// close UDP connection
-	cl.udpConn.Close()
+	if cl.udpConn != nil { cl.udpConn.Close() }
 
 	// close TCP connection
-	cl.tcpConn.Close()
+	if cl.tcpConn != nil { cl.tcpConn.Close() }
 
 	return nil
 }

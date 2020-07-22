@@ -123,7 +123,7 @@
     1 UDP peer and 1 TCP peer, if UDP peer sends unpadded channel data to TCP peer, it is possible that this message will be dropped due to requirement of https://tools.ietf.org/html/rfc5766#section-11.5
 *** HOW
 ** DONE link/stun:client:use one single listener to receive UDP/TCP packets :p1:
-** TODO link/stun:client will receive incorrect length of send indication data attributes :p1:
+** DONE link/stun:client will receive incorrect length of send indication data attributes :p1:
 *** WHAT
     ========== client > server(udp://127.0.0.1:3478) ==========
     method=send indication, length=20 bytes
@@ -143,4 +143,21 @@
 *** WHO
     coin0
 *** WHY
+    In doSendIndication() -> getAttrData(), it returned the whole byte slice of the attribute value
 *** HOW
+    It should have only returned the value limited by attribute length
+    <2020-07-22 三 08:06> verified
+    ========== client > server(udp://127.0.0.1:3478) ==========
+    method=send indication, length=20 bytes
+    transactionID=0x07 0x3d 0x21 0x16 0x92 0xaa 0xed 0xdb 0x3f 0x20 0x41 0xc0
+    attributes:
+    type=0x0012(XOR-PEER-ADDRESS), len=8, value=0x00 0x01 0xe1 0x12 0x5e 0x12 0xa4 0x43 (127.0.0.1:49152)
+    type=0x0013(DATA), len=3, value=0x61 0x61 0x61 0x00
+
+
+    ========== server(udp://127.0.0.1:3478) > client ==========
+    method=data indication, length=20 bytes
+    transactionID=0x16 0x23 0xea 0x2f 0x1a 0xf0 0x1c 0x57 0x00 0x00 0x00 0x00
+    attributes:
+    type=0x0012(XOR-PEER-ADDRESS), len=8, value=0x00 0x01 0xe1 0x12 0x5e 0x12 0xa4 0x43 (127.0.0.1:49152)
+    type=0x0013(DATA), len=3, value=0x61 0x61 0x61 0x00
