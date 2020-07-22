@@ -1937,3 +1937,28 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 
 	return nil
 }
+
+func (cl *stunclient) RelayedAddr() (string, int, error) {
+
+	if cl.relay != nil {
+		return cl.relay.IP.String(), cl.relay.Port, nil
+	}
+
+	return "", 0, fmt.Errorf("no relay")
+}
+
+func (cl *stunclient) SrflxAddr() (string, string, int, error) {
+
+	if cl.srflx != nil {
+		return func() string {
+			switch cl.srflx.Proto {
+			case NET_TCP: return "tcp"
+			case NET_UDP: return "udp"
+			case NET_TLS: return "tls"
+			default: return "unknown"
+			}
+		}(), cl.srflx.IP.String(), cl.srflx.Port, nil
+	}
+
+	return "", "", 0, fmt.Errorf("srflx unknown")
+}
