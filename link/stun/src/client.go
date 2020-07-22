@@ -11,6 +11,14 @@ import(
 	"stun"
 )
 
+var (
+	relayedIP    = ""
+	relayedPort  = 0
+	srflxProto   = ""
+	srflxIP      = ""
+	srflxPort    = 0
+)
+
 func init() {
 
 	addr := flag.String("a", "udp://127.0.0.1:3478", "TURN/STUN server address")
@@ -45,6 +53,8 @@ func usage() {
 	fmt.Println("******************************************")
 	fmt.Println("Simple STUN client")
 	fmt.Printf("  Ready to connect to server address %s\n", serverAddr)
+	if relayedIP != "" { fmt.Printf("  Relayed address udp://%s:%d\n", relayedIP, relayedPort) }
+	if srflxIP != ""   { fmt.Printf("  Reflexive address %s://%s:%d\n", srflxProto, srflxIP, srflxPort) }
 	fmt. Printf("  Debug mode: %s\n\n", func() string {
 		if *conf.ClientArgs.Debug { return "ON" }
 		return "OFF"
@@ -56,7 +66,9 @@ func usage() {
 	fmt.Printf("p <ip1> <ip2> <ip...>    : create permission request\n")
 	fmt.Printf("c <ip> <port>            : bind a channel\n")
 	fmt.Printf("x <IP> <port> <message>  : send a single line text message to peers\n")
-	fmt.Printf("l                        : listen messages\n")
+	fmt.Printf("l                        : start listening messages from other peers\n")
+	fmt.Printf("d                        : disconnect from the server\n")
+	fmt.Printf("q                        : quit this client\n")
 	fmt.Printf("\n")
 }
 
@@ -78,6 +90,8 @@ func main() {
 
 	for {
 		// wait for user input
+		relayedIP, relayedPort, _ = client.RelayedAddr()
+		srflxProto, srflxIP, srflxPort, _ = client.SrflxAddr()
 		usage()
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("> ")
@@ -138,6 +152,9 @@ func main() {
 		case 'd':
 			client.Bye()
 			fmt.Println("OK")
+		case 'q':
+			fmt.Println("Bye!\n")
+			os.Exit(0)
 		default:
 			err = fmt.Errorf("invalid command")
 		}
