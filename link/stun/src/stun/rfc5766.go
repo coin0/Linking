@@ -562,8 +562,10 @@ func newSubAllocationRequest(username, realm, nonce string) (*message, error) {
 func (this *message) checkAllocation() error {
 
 	// check req tran attr
-	if this.findAttr(STUN_ATTR_REQUESTED_TRAN) == nil {
-		return fmt.Errorf("missing REQUESTED-TRANSPORT attribute")
+	if tran, err := this.getAttrRequestedTran(); err != nil {
+		return err
+	} else if tran[0] != PROTO_NUM_UDP {
+		return fmt.Errorf("invalid REQUESTED-TRANSPORT value")
 	}
 
 	return nil
@@ -635,6 +637,16 @@ func (this *message) addAttrRequestedTran() int {
 
 	this.attributes = append(this.attributes, attr)
 	return 8 // 4 + 4
+}
+
+func (this *message) getAttrRequestedTran() ([]byte, error) {
+
+	attr := this.findAttr(STUN_ATTR_REQUESTED_TRAN)
+	if attr == nil {
+		return nil, fmt.Errorf("REQUESTED-TRANSPORT not found")
+	}
+
+	return attr.value[:attr.length], nil
 }
 
 func (this *message) getAttrData() ([]byte, error) {
