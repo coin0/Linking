@@ -26,7 +26,6 @@
     <2020-07-07 二 15:32> TCP connection
 *** TODO C version
     Make sure this version will keep the same interfaces with Golang version
-
 * Issue track list
 
 ** DONE template for a typical issue report                              :p3:
@@ -161,3 +160,4 @@
     attributes:
     type=0x0012(XOR-PEER-ADDRESS), len=8, value=0x00 0x01 0xe1 0x12 0x5e 0x12 0xa4 0x43 (127.0.0.1:49152)
     type=0x0013(DATA), len=3, value=0x61 0x61 0x61 0x00
+** DONE link/stun:server:crash because of invalid message attribute length :p1:

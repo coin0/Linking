@@ -549,9 +549,12 @@ func getMessage(buf []byte) (*message, error) {
 	for i := 0; i < msg.length; {
 		attr := &attribute{}
 
-		// TODO check attr length which could overflow
+		// check attr length
+		if i + 4 > msg.length {
+			return nil, fmt.Errorf("attribute length overflow")
+		}
 
-		// first 2 bytes are Type and Length
+		// first 4 bytes are Type and Length
 		attr.typevalue = binary.BigEndian.Uint16(buf[20+i:])
 		attr.typename = parseAttributeType(attr.typevalue)
 		len := int(binary.BigEndian.Uint16(buf[20+i+2:]))
@@ -561,6 +564,10 @@ func getMessage(buf []byte) (*message, error) {
 		if len % 4 != 0 {
 			// buffer should include padding bytes while attr.length does not
 			len += 4 - len % 4
+		}
+		// check attr length which could overflow
+		if i + 4 + len > msg.length {
+			return nil, fmt.Errorf("invalid stun attribute length");
 		}
 		attr.value = append(attr.value, buf[20+i+4:20+i+4+len]...)
 		msg.attributes = append(msg.attributes, attr)
