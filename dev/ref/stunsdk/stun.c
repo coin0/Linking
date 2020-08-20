@@ -111,16 +111,12 @@ int main(int argc, char** argv)
 				memcpy(alloc_req.realm, "link", 4);
 				memcpy(alloc_req.nonce, "2Muxzhfh6vEboHsNX43pm59794gv67qO", 32);
 				alloc_req.lifetime = 600;
-				printf("aaa\n");
 				size = stun_alloc_req(buf, &alloc_req);
-				printf("bbb\n");
 				if (size < 0) {
 								printf("alloc req: failed: %d", size);
 								return 1;	
 				}
-				printf("ccc\n");
 				stun_send(sock, buf, size);
-				printf("ddd\n");
 
 				return 0;
 }
@@ -876,6 +872,21 @@ int stun_put_lifetime(char* _buffer, int _lifetime)
 				return 8;
 }
 
+int stun_put_requested_tran(char* _buffer)
+{
+				int mlen = stun_message_get_length(_buffer);
+
+				// type + length
+				stun_attr_put_type(&_buffer[STUN_MSG_HEADER_SIZE+mlen], STUN_ATTR_REQUESTED_TRAN);
+				stun_attr_put_length(&_buffer[STUN_MSG_HEADER_SIZE+mlen], 4);
+				// value
+				_buffer[STUN_MSG_HEADER_SIZE+mlen+4] = 17;
+				put_be24(&_buffer[STUN_MSG_HEADER_SIZE+mlen+5], 0);
+
+				stun_message_put_length(_buffer, mlen + 8);
+				return 8;
+}
+
 int stun_put_integrity(char* _buffer, const char* _key)
 {
 				int mlen = stun_message_get_length(_buffer);
@@ -918,6 +929,8 @@ int stun_alloc_req(char* _buffer, const alloc_req_t* _param)
 				stun_message_put_transaction_id(_buffer, _param->transID);
 				stun_message_put_length(_buffer, 0);
 
+				size += stun_put_requested_tran(_buffer);
+
 				if (strlen(_param->realm) > 0) {
 								size += stun_put_username(_buffer, _param->username);
 								size += stun_put_realm(_buffer, _param->realm);
@@ -927,8 +940,6 @@ int stun_alloc_req(char* _buffer, const alloc_req_t* _param)
 								compute_md5(str, strlen(str), key);
 								size += stun_put_integrity(_buffer, (char*)key);
 				}
-
-				printf("--%d\n", size + STUN_MSG_HEADER_SIZE);
 
 				return size + STUN_MSG_HEADER_SIZE;
 }
