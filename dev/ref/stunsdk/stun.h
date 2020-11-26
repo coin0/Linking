@@ -40,7 +40,7 @@ extern int stun_alloc_req(char* buffer, const alloc_req_t* param);
 typedef struct {
 				char transID[12];
 				char username[128];
-				char passowrd[128];
+				char password[128];
 				char realm[128];
 				char nonce[128];
 				int  lifetime;

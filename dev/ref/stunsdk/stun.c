@@ -6,6 +6,7 @@
 #include <unistd.h> 
 #include <errno.h>
 #include <time.h>
+#include <pthread.h>
 #include <sys/socket.h>  
 #include <netinet/in.h>  
 #include <arpa/inet.h>  
@@ -70,27 +71,53 @@
 
 static int stun_connect(int* sock, char* addr, char* port);
 static int stun_send(int sock, const char* buf, int size);
+static int stun_recv(int sock, char* buf, int size);
 static int stun_tcp_connect(int* sock, char* addr, char* port);
 static int stun_tcp_send(int sock, const char* buf, int size);
+static int stun_tcp_recv(int sock, char* buf, int size);
 static int stun_udp_connect(int* sock, char* addr, char* port);
 static int stun_udp_send(int sock, const char* buf, int size);
+static int stun_udp_recv(int sock, char* buf, int size);
 
 // -------------------------------------------------------------------------------------------------
 
+char resp[DEFAULT_MTU] = {0};
+int resp_size = 0;
+
+void* recv_thread(void* _args)
+{
+				int size;
+
+				while (1) {
+								resp_size = stun_recv(*((int*)_args), resp, DEFAULT_MTU);
+								if (resp_size < 0) {
+												continue;
+								} else {
+												printf("got %d bytes\n", resp_size);
+								}
+				}
+
+				return NULL;
+}
+
 int main(int argc, char** argv)
 {
-				char* buf = (char*)malloc(1500);
+				char buf[DEFAULT_MTU] = {0};
 				int size;
 				int sock;
+				pthread_t pid;
 
 				if (argc < 3) {
 								printf("usage error\n");
+								exit(1);
 				}
 
 				if (stun_connect(&sock, argv[1], argv[2]) < 0) {
 								printf("connect failed\n");
 								exit(1);
 				}
+
+				pthread_create(&pid, NULL, recv_thread, &sock);
 
 				// binding request
 				binding_req_t bind_req;
@@ -101,6 +128,8 @@ int main(int argc, char** argv)
 								return 1;
 				}
 				stun_send(sock, buf, size);
+
+				sleep(2);
 
 				// allocate request
 				alloc_req_t alloc_req;
@@ -118,6 +147,32 @@ int main(int argc, char** argv)
 				}
 				stun_send(sock, buf, size);
 
+				sleep(2);
+
+				// refresh request
+				refresh_req_t refresh_req;
+				memset(&refresh_req, 0, sizeof(refresh_req_t));
+				stun_gen_transactionID(refresh_req.transID);
+				memcpy(refresh_req.username, "root", 4);
+				memcpy(refresh_req.password, "aaa", 3);
+				memcpy(refresh_req.realm, "link", 4);
+				memcpy(refresh_req.nonce, "2Muxzhfh6vEboHsNX43pm59794gv67qO", 32);
+				refresh_req.lifetime = 600;
+				size = stun_refresh_req(buf, &refresh_req);
+				if (size < 0) {
+								printf("alloc req: failed: %d", size);
+								return 1;	
+				}
+				stun_send(sock, buf, size);
+
+				sleep(2);
+
+				// nonce has changed
+				error_attr_t err;
+				stun_get_error_code(resp, DEFAULT_MTU, &err);
+				nonce_attr_t nonce;
+				stun_get_nonce(resp, DEFAULT_MTU, &nonce);
+
 				return 0;
 }
 
@@ -131,6 +186,11 @@ int stun_connect(int* _sock, char* _addr, char* _port)
 int stun_send(int _sock, const char* _buf, int _size)
 {
 				return stun_tcp_send(_sock, _buf, _size);
+}
+
+int stun_recv(int _sock, char* _buf, int _size)
+{
+				return stun_tcp_recv(_sock, _buf, _size);
 }
 
 int stun_tcp_connect(int* _sock, char* _addr, char* _port)
@@ -164,6 +224,19 @@ int stun_tcp_send(int _sock, const char* _buf, int _size)
 				return 0;
 }
 
+int stun_tcp_recv(int _sock, char* _buf, int _size)
+{
+				int size = 0;
+
+				size = recv(_sock, _buf, _size, 0);
+				if (size < 0) {
+								printf("tcp recv error:%s", strerror(errno));
+								return -1;
+				}
+
+				return size;
+}
+
 struct sockaddr_in udp_addr;
 int stun_udp_connect(int* _sock, char* _addr, char* _port)
 {
@@ -188,6 +261,18 @@ int stun_udp_send(int _sock, const char* _buf, int _size)
 				}
 
 				return 0;
+}
+
+int stun_udp_recv(int _sock, char* _buf, int _size)
+{
+				int addr_len = sizeof(udp_addr);
+				int size = recvfrom(_sock, _buf, _size, 0, (struct sockaddr*)&udp_addr, &addr_len);
+				if (size < 0) {
+								printf("udp recv error:%s", strerror(errno));
+								return -1;
+				}
+
+				return size;
 }
 
 #endif
@@ -940,6 +1025,28 @@ int stun_alloc_req(char* _buffer, const alloc_req_t* _param)
 								compute_md5(str, strlen(str), key);
 								size += stun_put_integrity(_buffer, (char*)key);
 				}
+
+				return size + STUN_MSG_HEADER_SIZE;
+}
+
+int stun_refresh_req(char* _buffer, const refresh_req_t* _param)
+{
+				int size = 0;
+				char str[400] = {0};
+				unsigned char key[20] = {0};
+
+				stun_message_put_type(_buffer, STUN_MSG_METHOD_REFRESH, STUN_MSG_REQUEST);
+				stun_message_put_magic(_buffer);
+				stun_message_put_transaction_id(_buffer, _param->transID);
+				stun_message_put_length(_buffer, 0);
+
+				size += stun_put_username(_buffer, _param->username);
+				size += stun_put_realm(_buffer, _param->realm);
+				size += stun_put_nonce(_buffer, _param->nonce);
+				size += stun_put_lifetime(_buffer, _param->lifetime);
+				sprintf(str, "%s:%s:%s", _param->username, _param->realm, _param->password);
+				compute_md5(str, strlen(str), key);
+				size += stun_put_integrity(_buffer, (char*)key);
 
 				return size + STUN_MSG_HEADER_SIZE;
 }
