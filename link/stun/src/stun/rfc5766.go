@@ -20,6 +20,7 @@ const (
 	TURN_PERM_LIMIT              = 10
 	TURN_CHANN_EXPIRY            = 600   // this is defined (https://tools.ietf.org/html/rfc5766#page-38)
 	TURN_NONCE_EXPIRY            = 3600  // <= 1h is recommended
+	TURN_NONCE_DICT              = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
 const (
@@ -222,14 +223,40 @@ func keygen(r *address) string {
 
 func genNonce(length int) string {
 
-	const dictionary = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
 	str := make([]byte, length)
 	for i := range str {
-		str[i] = dictionary[rand.Int63() % int64(len(dictionary))]
+		str[i] = TURN_NONCE_DICT[rand.Int63() % int64(len(TURN_NONCE_DICT))]
 	}
 
 	return string(str)
+}
+
+// an algorithm to generate a nonce for the first ALLOC response when we do not have alloc data saved
+func genFirstNonce(length int) string {
+
+	nonce := []byte(genNonce(length))
+	calc := func(a byte, b byte) byte {
+		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
+	}
+
+	nonce[0] = calc(nonce[length/2], nonce[length-1])
+	nonce[1] = calc(nonce[length/3], nonce[length-1])
+	nonce[2] = calc(nonce[length/4], nonce[length-1])
+
+	return string(nonce)
+}
+
+func checkFirstNonce(nonce string) bool {
+
+	length := len(nonce)
+	calc := func(a byte, b byte) byte {
+		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
+	}
+
+	return (length == STUN_NONCE_LENGTH &&
+		nonce[0] == calc(nonce[length/2], nonce[length-1]) &&
+		nonce[1] == calc(nonce[length/3], nonce[length-1]) &&
+		nonce[2] == calc(nonce[length/4], nonce[length-1]))
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -479,10 +506,13 @@ func newRefreshRequest(lifetime uint32, username, password, realm, nonce string)
 func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 
 	// 1. long-term credential
-	username, _, _, _, err := this.getCredential()
+	username, _, nonce, _, err := this.getCredential()
 	if err != nil {
 		// handle first alloc request
-		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genNonce(STUN_NONCE_LENGTH), "missing long-term credential")
+		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonce(STUN_NONCE_LENGTH), "missing long-term credential")
+	}
+	if !checkFirstNonce(nonce) {
+		return this.replyUnauth(STUN_ERR_STALE_NONCE, genFirstNonce(STUN_NONCE_LENGTH), "NONCE is expired")
 	}
 	// handle subsequent alloc request
 	code, err := this.checkCredential()
@@ -518,9 +548,9 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	// set longterm-credential username
 	alloc.username = username
 
-	// set nonce to expire right now
-	alloc.nonce = genNonce(STUN_NONCE_LENGTH)
-	alloc.nonceExp = time.Now()
+	// extend nonce expiry time
+	alloc.nonce = nonce
+	alloc.nonceExp = time.Now().Add(time.Second * time.Duration(TURN_NONCE_EXPIRY))
 
 	// set lifetime
 	lifetime, err := this.getAttrLifetime()
