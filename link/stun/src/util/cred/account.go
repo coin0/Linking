@@ -78,6 +78,15 @@ func (book *AccountBook) Find(name string) (string, error) {
 	}
 }
 
+func (book *AccountBook) Has(name string) bool {
+
+	book.accountLck.Lock()
+	defer book.accountLck.Unlock()
+
+	_, ok := book.accounts[name]
+	return ok
+}
+
 func (book *AccountBook) Refresh(name string, expiry time.Time) error {
 
 	book.accountLck.Lock()
@@ -196,8 +205,8 @@ func (book *AccountBook) UserTable() (result string) {
 	book.accountLck.Lock()
 	defer book.accountLck.Unlock()
 
-	enabled := ""
 	for name, acc := range book.accounts {
+		enabled := ""
 		if !acc.enabled {
 			enabled = "[inactive]"
 		}
@@ -210,7 +219,11 @@ func (book *AccountBook) UserTable() (result string) {
 			expiry = acc.validBefore.Format("2006-01-02 15:04:05")
 		}
 		if len(expiry) > 0 {
-			result += fmt.Sprintf("  expiry=%s\n", expiry)
+			expired := ""
+			if time.Now().After(acc.validBefore) {
+				expired = "[expired]"
+			}
+			result += fmt.Sprintf("  expiry=%s %s\n", expiry, expired)
 		}
 	}
 
