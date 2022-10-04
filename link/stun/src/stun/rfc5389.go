@@ -696,21 +696,22 @@ func (this *message) computeIntegrity(key string) string {
 
 func (this *message) checkIntegrity(key string) error {
 
-	hash := ""
-	integrity, err := this.getAttrMsgIntegrity()
-	if err != nil {
-		integrity, err = this.getAttrMsgIntegritySHA256()
-		if err != nil {
-			return fmt.Errorf("missing message integrity attribute")
-		}
-		hash = this.computeIntegritySHA256(key)
-	} else {
-		hash = this.computeIntegrity(key)
+	integritySHA1, err1 := this.getAttrMsgIntegrity()
+	integritySHA256, err2 := this.getAttrMsgIntegritySHA256()
+	if err1 != nil && err2 != nil {
+		return fmt.Errorf("missing message integrity attribute")
 	}
 
-	if hash != integrity {
+	// check MESSAGE-INTEGRITY
+	if err1 == nil && this.computeIntegrity(key) != integritySHA1 {
 		return fmt.Errorf("wrong message integrity")
 	}
+
+	// check MESSAGE-INTEGRITY-SHA256
+	if err2 == nil && this.computeIntegritySHA256(key) != integritySHA256 {
+		return fmt.Errorf("wrong message integrity sha256")
+	}
+
 	return nil
 }
 
