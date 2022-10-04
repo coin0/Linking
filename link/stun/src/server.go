@@ -84,6 +84,7 @@ func loadUsers() {
 func listenHTTP(ip, port string) error {
 
 	http.HandleFunc("/get/alloc", httpGetAlloc)
+	http.HandleFunc("/get/user", httpGetUser)
 	err := http.ListenAndServe(ip + ":" + port, nil)
 	return err
 }
@@ -91,4 +92,9 @@ func listenHTTP(ip, port string) error {
 func httpGetAlloc(w http.ResponseWriter, req *http.Request) {
 
 	io.WriteString(w, stun.AllocTable());
+}
+
+func httpGetUser(w http.ResponseWriter, req *http.Request) {
+
+	io.WriteString(w, conf.Users.UserTable());
 }

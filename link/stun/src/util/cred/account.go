@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 	"fmt"
+	"util/dbg"
 )
 
 const (
@@ -188,4 +189,30 @@ func (book *AccountBook) check(name string) (string, error) {
 	}
 
 	return acc.password, nil
+}
+
+func (book *AccountBook) UserTable() (result string) {
+
+	book.accountLck.Lock()
+	defer book.accountLck.Unlock()
+
+	enabled := ""
+	for name, acc := range book.accounts {
+		if !acc.enabled {
+			enabled = "[inactive]"
+		}
+		result += fmt.Sprintf("user=%s %s\n", name, enabled)
+		result += fmt.Sprintf("  key=%s\n", dbg.DumpMem([]byte(acc.password), 0))
+		result += fmt.Sprintf("  createdAt=%s\n", acc.createdAt.Format("2006-01-02 15:04:05"))
+
+		expiry := ""
+		if acc.expiry {
+			expiry = acc.validBefore.Format("2006-01-02 15:04:05")
+		}
+		if len(expiry) > 0 {
+			result += fmt.Sprintf("  expiry=%s\n", expiry)
+		}
+	}
+
+	return
 }
