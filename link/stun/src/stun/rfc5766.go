@@ -282,7 +282,7 @@ func (this *message) generalRequestCheck(r *address) (*allocation, *message) {
 
 	// check username and nocne, according to rfc5766, username could not change since allocate
 	// is created
-	username, _, nonce, _, _ := this.getCredential()
+	username, _, nonce, _ := this.getCredential()
 	if alloc.username != username {
 		msg := this.newErrorMessage(STUN_ERR_WRONG_CRED, "username or password error")
 		return nil, msg
@@ -506,7 +506,7 @@ func newRefreshRequest(lifetime uint32, username, password, realm, nonce string)
 func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 
 	// 1. long-term credential
-	username, _, nonce, _, err := this.getCredential()
+	username, _, nonce, err := this.getCredential()
 	if err != nil {
 		// handle first alloc request
 		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonce(STUN_NONCE_LENGTH), "missing long-term credential")

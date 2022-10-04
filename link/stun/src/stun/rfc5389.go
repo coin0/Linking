@@ -189,6 +189,9 @@ func (this *message) bufferExIntegrityAttr() []byte {
 	// this message length should reflect actual bytes above attribute MESSAGE_INTEGRITY
 	msgLen := 0
 
+	// a flag for STUN_ATTR_MESSAGE_INTEGRITY_SHA256
+	useSHA256 := false
+
 	// append attributes
 	for _, attr := range this.attributes {
 
@@ -197,6 +200,9 @@ func (this *message) bufferExIntegrityAttr() []byte {
 		// of integrity attr to compute the integrity value
 
 		if attr.typevalue == STUN_ATTR_MESSAGE_INTEGRITY {
+			break
+		} else if attr.typevalue == STUN_ATTR_MESSAGE_INTEGRITY_SHA256 {
+			useSHA256 = true
 			break
 		}
 
@@ -213,7 +219,11 @@ func (this *message) bufferExIntegrityAttr() []byte {
 
 	// message-integrity attribute should not be included in integrity computing
 	// while its attribute length should be counted in stun message length
-	msgLen += 24
+	if useSHA256 {
+		msgLen += 4 + STUN_MSG_INTEGRITY_SHA256_LENGTH // 32-byte hash by default
+	} else {
+		msgLen += 24 // 4 + 20 (SHA1)
+	}
 
 	// message length
 	binary.BigEndian.PutUint16(payload[2:], uint16(msgLen))
@@ -686,12 +696,17 @@ func (this *message) computeIntegrity(key string) string {
 
 func (this *message) checkIntegrity(key string) error {
 
+	hash := ""
 	integrity, err := this.getAttrMsgIntegrity()
 	if err != nil {
-		return fmt.Errorf("missing MESSAGE-INTEGRITY attribute")
+		integrity, err = this.getAttrMsgIntegritySHA256()
+		if err != nil {
+			return fmt.Errorf("missing message integrity attribute")
+		}
+		hash = this.computeIntegritySHA256(key)
+	} else {
+		hash = this.computeIntegrity(key)
 	}
-
-	hash := this.computeIntegrity(key)
 
 	if hash != integrity {
 		return fmt.Errorf("wrong message integrity")
@@ -710,7 +725,7 @@ func (this *message) addIntegrity(username string) error {
 	return nil
 }
 
-func (this *message) getCredential() (username, realm, nonce, integrity string, err error) {
+func (this *message) getCredential() (username, realm, nonce string, err error) {
 
 	if username, err = this.getAttrUsername(); err != nil {
 		return
@@ -721,9 +736,6 @@ func (this *message) getCredential() (username, realm, nonce, integrity string, 
 	if nonce, err = this.getAttrNonce(); err != nil {
 		return
 	}
-	if integrity, err = this.getAttrMsgIntegrity(); err != nil {
-		return
-	}
 
 	return
 }
@@ -731,7 +743,7 @@ func (this *message) getCredential() (username, realm, nonce, integrity string, 
 func (this *message) checkCredential() (code int, err error) {
 
 	// get username realm nonce integrity
-	username, realm, _, _, err := this.getCredential()
+	username, realm, _, err := this.getCredential()
 	if err != nil {
 		return STUN_ERR_BAD_REQUEST, fmt.Errorf("credential error")
 	}
