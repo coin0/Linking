@@ -98,7 +98,7 @@ func (this *message) addAttrMsgIntegritySHA256(key string) int {
 	return 4 + len(attr.value)
 }
 
-func (this *message) addPswAlgorithm(algorithm uint16, params []byte) int {
+func (this *message) addAttrPswAlgorithm(algorithm uint16, params []byte) int {
 
 /*
       https://www.rfc-editor.org/rfc/rfc8489#section-14.12
@@ -158,7 +158,7 @@ func (this *message) addAttrUserHash(hash []byte) int {
 	return 4 + len(attr.value)
 }
 
-func (this *message) addPswAlgorithms(set map[uint16][]byte) int {
+func (this *message) addAttrPswAlgorithms(set map[uint16][]byte) int {
 
 /*
       0                   1                   2                   3
@@ -212,7 +212,7 @@ func (this *message) getAttrMsgIntegritySHA256() (string, error) {
 	return this.getAttrStringValue(STUN_ATTR_MESSAGE_INTEGRITY_SHA256, "MESSAGE-INTEGRITY-SHA256")
 }
 
-func (this *message) getPswAlgorithm() (uint16, []byte, error) {
+func (this *message) getAttrPswAlgorithm() (uint16, []byte, error) {
 
 	attr := this.findAttr(STUN_ATTR_PASSWORD_ALGORITHM)
 	if attr == nil {
@@ -244,7 +244,7 @@ func (this *message) getAttrUserHash() ([]byte, error) {
 	return attr.value, nil
 }
 
-func (this *message) getPswAlgorithms() (map[uint16][]byte, error) {
+func (this *message) getAttrPswAlgorithms() (map[uint16][]byte, error) {
 
 	attr := this.findAttr(STUN_ATTR_PASSWORD_ALGORITHMS)
 	if attr == nil {

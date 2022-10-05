@@ -509,7 +509,8 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	username, _, nonce, err := this.getCredential()
 	if err != nil {
 		// handle first alloc request
-		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonceWithCookie(STUN_NONCE_LENGTH), "missing long-term credential")
+		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonceWithCookie(STUN_NONCE_LENGTH),
+			"missing long-term credential")
 	}
 
 	// handle subsequent alloc request
