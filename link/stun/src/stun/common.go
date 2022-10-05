@@ -30,14 +30,14 @@ type address struct {
 }
 
 type tcpPool struct {
-	conns   map[string]*net.TCPConn
+	conns   map[string]net.Conn
 	lck     *sync.Mutex
 }
 
 var (
 	udpConn  *net.UDPConn
 	tcpConns = &tcpPool{
-		conns: map[string]*net.TCPConn{},
+		conns: map[string]net.Conn{},
 		lck:   &sync.Mutex{},
 	}
 )
@@ -51,7 +51,7 @@ func AllocTable() string {
 
 // -------------------------------------------------------------------------------------------------
 
-func (pool *tcpPool) get(addr *address) *net.TCPConn {
+func (pool *tcpPool) get(addr *address) net.Conn {
 
 	pool.lck.Lock()
 	defer pool.lck.Unlock()
@@ -62,7 +62,7 @@ func (pool *tcpPool) get(addr *address) *net.TCPConn {
 	}
 }
 
-func (pool *tcpPool) set(addr *address, conn *net.TCPConn) {
+func (pool *tcpPool) set(addr *address, conn net.Conn) {
 
 	pool.lck.Lock()
 	defer pool.lck.Unlock()
