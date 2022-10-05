@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"conf"
+	"crypto/tls"
 )
 
 const (
@@ -78,6 +80,33 @@ func (pool *tcpPool) del(addr *address) {
 
 // -------------------------------------------------------------------------------------------------
 
+func ListenTLS(ip, port string) error {
+
+	// load cert and key files from filesystem
+	cert, err := tls.LoadX509KeyPair(*conf.Args.Cert, *conf.Args.Key)
+	if err != nil {
+		return fmt.Errorf("wrong cert or key file path")
+	}
+	config := &tls.Config{ Certificates: []tls.Certificate{cert} }
+
+	l, err := tls.Listen("tcp", ip + ":" + port, config)
+	if err != nil {
+		return fmt.Errorf("listen TLS: %s", err)
+	}
+	defer l.Close()
+
+	for {
+		tlsConn, err := l.Accept()
+		if err != nil {
+			return fmt.Errorf("TCP-TLS accept: %s", err)
+		}
+
+		handleTCP(tlsConn, NET_TLS)
+	}
+
+	return nil
+}
+
 func ListenTCP(ip, port string) error {
 
 	tcp, err := net.ResolveTCPAddr("tcp4", ip + ":" + port)
@@ -96,47 +125,7 @@ func ListenTCP(ip, port string) error {
 			return fmt.Errorf("TCP accept: %s", err)
 		}
 
-		go func(conn *net.TCPConn) {
-
-			rest := make([]byte, 0)
-			rm, _ := net.ResolveTCPAddr(conn.RemoteAddr().Network(), conn.RemoteAddr().String())
-			addr := &address{
-				IP:    rm.IP,
-				Port:  rm.Port,
-				Proto: NET_TCP,
-			}
-
-			defer tcpConns.del(addr)
-			defer conn.Close()
-			tcpConns.set(addr, conn)
-
-			for {
-				conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
-
-				buf := make([]byte, DEFAULT_MTU)
-				nr, err := conn.Read(buf)
-				if err != nil {
-					return
-				}
-
-				rest = append(rest, buf[:nr]...)
-				for {
-					one := []byte{}
-					one, rest, err = decodeTCP(rest)
-					if err != nil {
-						if len(rest) > TCP_MAX_BUF_SIZE {
-							rest = []byte{}
-						}
-						break
-					}
-
-					resp := process(one, addr)
-					if resp != nil {
-						conn.Write(resp)
-					}
-				}
-			}
-		}(tcpConn)
+		handleTCP(tcpConn, NET_TCP)
 	}
 }
 
@@ -178,6 +167,51 @@ func ListenUDP(ip, port string) error {
 			}
 		}(buf[:nr], rm)
 	}
+}
+
+func handleTCP(conn net.Conn, connType byte) {
+
+	go func() {
+
+		rest := make([]byte, 0)
+		rm, _ := net.ResolveTCPAddr(conn.RemoteAddr().Network(), conn.RemoteAddr().String())
+		addr := &address{
+			IP:    rm.IP,
+			Port:  rm.Port,
+			Proto: connType,
+		}
+
+		defer tcpConns.del(addr)
+		defer conn.Close()
+		tcpConns.set(addr, conn)
+
+		for {
+			conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
+
+			buf := make([]byte, DEFAULT_MTU)
+			nr, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+
+			rest = append(rest, buf[:nr]...)
+			for {
+				one := []byte{}
+				one, rest, err = decodeTCP(rest)
+				if err != nil {
+					if len(rest) > TCP_MAX_BUF_SIZE {
+						rest = []byte{}
+					}
+					break
+				}
+
+				resp := process(one, addr)
+				if resp != nil {
+					conn.Write(resp)
+				}
+			}
+		}
+	}()
 }
 
 func decodeTCP(req []byte) ([]byte, []byte, error) {

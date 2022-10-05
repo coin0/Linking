@@ -21,6 +21,9 @@ func (this *arrayflags) Set(value string) error {
 type argument struct {
 	IP       *string
 	Port     *string
+	SecPort  *string
+	Cert     *string
+	Key      *string
 	Realm    *string
 	Users    arrayflags
 	Http     *string
