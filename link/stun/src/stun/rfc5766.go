@@ -527,8 +527,8 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	}
 
 	// 3. check allocation
-	if err = this.checkAllocation(); err != nil {
-		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "invalid alloc req: " + err.Error()), nil
+	if code, err = this.checkAllocation(); err != nil {
+		return this.newErrorMessage(code, "invalid alloc req: " + err.Error()), nil
 	}
 
 	// 4. TODO handle DONT-FRAGMENT attribute
@@ -589,16 +589,16 @@ func newSubAllocationRequest(username, realm, nonce string) (*message, error) {
 	return msg, nil // this is not done yet, need optional attrs + integrity attr
 }
 
-func (this *message) checkAllocation() error {
+func (this *message) checkAllocation() (int, error) {
 
 	// check req tran attr
 	if tran, err := this.getAttrRequestedTran(); err != nil {
-		return err
+		return STUN_ERR_BAD_REQUEST, err
 	} else if tran[0] != PROTO_NUM_UDP {
-		return fmt.Errorf("invalid REQUESTED-TRANSPORT value")
+		return STUN_ERR_UNSUPPORTED_PROTO, fmt.Errorf("invalid REQUESTED-TRANSPORT value")
 	}
 
-	return nil
+	return 0, nil
 }
 
 func (this *message) addAttrChanNumber(channel uint16) int {
