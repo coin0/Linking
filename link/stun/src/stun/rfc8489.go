@@ -25,8 +25,8 @@ const (
 	// detailed info about nonce cookie
 	STUN_NONCE_COOKIE_LENGTH           = 13
 	STUN_NONCE_COOKIE_PREFIX           = "obMatJos2"
-	STUN_SEC_FEAT_MASK_PSW_ALGORITHMS  = 0x800000
-	STUN_SEC_FEAT_MASK_USR_ANONYMITY   = 0x400000
+	STUN_SEC_FEAT_MASK_PSW_ALGORITHMS  = 0x80
+	STUN_SEC_FEAT_MASK_USR_ANONYMITY   = 0x40
 
 	STUN_PASSWORD_ALGORITHM_RESERVED   = 0x0000
 	STUN_PASSWORD_ALGORITHM_MD5        = 0x0001
@@ -41,7 +41,7 @@ func genNonceWithCookie(length int) string {
 
 	// https://www.rfc-editor.org/rfc/rfc8489#section-18.1
 	// 24-bit security feature set
-	set := []byte{ 0xff & STUN_SEC_FEAT_MASK_PSW_ALGORITHMS, 0, 0 }
+	set := []byte{ 0, 0, 0 } // disable all security feature currently
 
 	// encode as 4-byte base64 strings
 	eb := make([]byte, base64.StdEncoding.EncodedLen(len(set)))
@@ -73,9 +73,9 @@ func checkFirstNonceWithCookie(nonce string) bool {
 	}
 
 	return (length == STUN_NONCE_LENGTH &&
-		nonce[0] == calc(nonce[length/2+0], nonce[length-1]) &&
-		nonce[1] == calc(nonce[length/2+1], nonce[length-2]) &&
-		nonce[2] == calc(nonce[length/2+2], nonce[length-3]))
+		nonce[STUN_NONCE_COOKIE_LENGTH+0] == calc(nonce[length/2+0], nonce[length-1]) &&
+		nonce[STUN_NONCE_COOKIE_LENGTH+1] == calc(nonce[length/2+1], nonce[length-2]) &&
+		nonce[STUN_NONCE_COOKIE_LENGTH+2] == calc(nonce[length/2+2], nonce[length-3]))
 }
 
 // -------------------------------------------------------------------------------------------------

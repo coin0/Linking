@@ -509,11 +509,9 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	username, _, nonce, err := this.getCredential()
 	if err != nil {
 		// handle first alloc request
-		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonce(STUN_NONCE_LENGTH), "missing long-term credential")
+		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonceWithCookie(STUN_NONCE_LENGTH), "missing long-term credential")
 	}
-	if !checkFirstNonce(nonce) {
-		return this.replyUnauth(STUN_ERR_STALE_NONCE, genFirstNonce(STUN_NONCE_LENGTH), "NONCE is expired")
-	}
+
 	// handle subsequent alloc request
 	code, err := this.checkCredential()
 	if err != nil {
@@ -524,6 +522,10 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	alloc, err := newAllocation(r)
 	if err != nil {
 		return this.newErrorMessage(STUN_ERR_ALLOC_MISMATCH, err.Error()), nil
+	}
+	// we have a simple algorithm to figure out if this is the subsequent alloc request
+	if !checkFirstNonceWithCookie(nonce) {
+		return this.replyUnauth(STUN_ERR_STALE_NONCE, genFirstNonceWithCookie(STUN_NONCE_LENGTH), "NONCE is expired")
 	}
 
 	// 3. check allocation
@@ -1097,7 +1099,7 @@ func (svr *relayserver) spawn() error {
 				// refresh nonce
 				now := time.Now()
 				if now.After(svr.allocRef.nonceExp) {
-					svr.allocRef.nonce = genNonce(STUN_NONCE_LENGTH)
+					svr.allocRef.nonce = genNonceWithCookie(STUN_NONCE_LENGTH)
 					svr.allocRef.nonceExp = now.Add(time.Second * time.Duration(TURN_NONCE_EXPIRY))
 				}
 			case <-timer.C:
