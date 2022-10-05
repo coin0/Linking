@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"os"
-	"crypto/md5"
 	"net/http"
 	"strconv"
 	"io"
@@ -74,8 +73,7 @@ func loadUsers() {
 
 	for _, acc := range conf.Args.Users {
 		pair := strings.Split(acc, ":")
-		key := md5.Sum([]byte(pair[0] + ":" + *conf.Args.Realm + ":" + pair[1]))
-		if err := conf.Users.Add(pair[0], string(key[0:16])); err != nil {
+		if err := conf.Users.Add(pair[0], *conf.Args.Realm, pair[1]); err != nil {
 			fmt.Printf("cannot add user \"%s\" from cmd line: %s\n", pair[0], err.Error())
 			os.Exit(1)
 		}
@@ -118,9 +116,8 @@ func httpSetUser(w http.ResponseWriter, req *http.Request) {
 
 	// add a new user or update password if user exists
 	if psw, ok := q["psw"]; ok {
-		key := md5.Sum([]byte(user + ":" + *conf.Args.Realm + ":" + psw[0]))
-		if err := conf.Users.Add(user, string(key[0:16])); err != nil {
-			conf.Users.Reset(user, string(key[0:16]))
+		if err := conf.Users.Add(user, *conf.Args.Realm, psw[0]); err != nil {
+			conf.Users.Reset(user, *conf.Args.Realm, psw[0])
 		}
 	} else {
 		// cannot update a user that does not exist

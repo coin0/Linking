@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/base64"
 )
 
 const (
@@ -20,10 +21,62 @@ const (
 	STUN_USERHASH_LENGTH               = 32
 	STUN_MSG_INTEGRITY_SHA256_LENGTH   = 32
 
+	// https://www.rfc-editor.org/rfc/rfc8489#section-9.2
+	// detailed info about nonce cookie
+	STUN_NONCE_COOKIE_LENGTH           = 13
+	STUN_NONCE_COOKIE_PREFIX           = "obMatJos2"
+	STUN_SEC_FEAT_MASK_PSW_ALGORITHMS  = 0x800000
+	STUN_SEC_FEAT_MASK_USR_ANONYMITY   = 0x400000
+
 	STUN_PASSWORD_ALGORITHM_RESERVED   = 0x0000
 	STUN_PASSWORD_ALGORITHM_MD5        = 0x0001
 	STUN_PASSWORD_ALGORITHM_SHA256     = 0x0002
 )
+
+// -------------------------------------------------------------------------------------------------
+
+func genNonceWithCookie(length int) string {
+
+	cookie := STUN_NONCE_COOKIE_PREFIX
+
+	// https://www.rfc-editor.org/rfc/rfc8489#section-18.1
+	// 24-bit security feature set
+	set := []byte{ 0xff & STUN_SEC_FEAT_MASK_PSW_ALGORITHMS, 0, 0 }
+
+	// encode as 4-byte base64 strings
+	eb := make([]byte, base64.StdEncoding.EncodedLen(len(set)))
+	base64.StdEncoding.Encode(eb, set)
+
+	cookie += string(eb)
+	return cookie + genNonce(STUN_NONCE_LENGTH - len(cookie))
+}
+
+func genFirstNonceWithCookie(length int) string {
+
+	nonce := []byte(genNonceWithCookie(length))
+	calc := func(a byte, b byte) byte {
+		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
+	}
+
+	nonce[STUN_NONCE_COOKIE_LENGTH+0] = calc(nonce[length/2+0], nonce[length-1])
+	nonce[STUN_NONCE_COOKIE_LENGTH+1] = calc(nonce[length/2+1], nonce[length-2])
+	nonce[STUN_NONCE_COOKIE_LENGTH+2] = calc(nonce[length/2+2], nonce[length-3])
+
+	return string(nonce)
+}
+
+func checkFirstNonceWithCookie(nonce string) bool {
+
+	length := len(nonce)
+	calc := func(a byte, b byte) byte {
+		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
+	}
+
+	return (length == STUN_NONCE_LENGTH &&
+		nonce[0] == calc(nonce[length/2+0], nonce[length-1]) &&
+		nonce[1] == calc(nonce[length/2+1], nonce[length-2]) &&
+		nonce[2] == calc(nonce[length/2+2], nonce[length-3]))
+}
 
 // -------------------------------------------------------------------------------------------------
 

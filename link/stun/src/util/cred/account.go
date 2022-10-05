@@ -5,6 +5,8 @@ import (
 	"time"
 	"fmt"
 	"util/dbg"
+	"crypto/md5"
+	"crypto/sha256"
 )
 
 const (
@@ -17,28 +19,51 @@ type account struct {
 	createdAt    time.Time
 
 	// password string
-	password     string
+	password       string
+	passwordSHA256 string
 
 	// account expiry
 	expiry       bool
 	validBefore  time.Time
+
+	// RFC8489 security feature
+	// https://www.rfc-editor.org/rfc/rfc8489#section-18.1
+	secFeatEnabled bool
 }
 
 type AccountBook struct {
 
 	accounts    map[string]*account
-	accountLck  *sync.Mutex
+	accountLck  *sync.RWMutex
 }
+
+// -------------------------------------------------------------------------------------------------
+
+func genMD5Key(user, realm, psw string) string {
+
+	key := md5.Sum([]byte(user + ":" + realm + ":" + psw))
+	return string(key[0:16])
+}
+
+func genSHA256Key(user, realm, psw string) string {
+
+	h := sha256.New()
+	h.Write([]byte(user + ":" + realm + ":" + psw))
+	key := h.Sum(nil)
+	return string(key[0:32])
+}
+
+// -------------------------------------------------------------------------------------------------
 
 func NewAccountBook() *AccountBook {
 
 	return &AccountBook{
 		accounts:   map[string]*account{},
-		accountLck: &sync.Mutex{},
+		accountLck: &sync.RWMutex{},
 	}
 }
 
-func (book *AccountBook) Add(name, psw string) error {
+func (book *AccountBook) Add(name, realm, psw string) error {
 
 	book.accountLck.Lock()
 	defer book.accountLck.Unlock()
@@ -50,9 +75,11 @@ func (book *AccountBook) Add(name, psw string) error {
 	book.accounts[name] = &account{
 		enabled:     true,
 		createdAt:   time.Now(),
-		password:    psw,
+		password:    genMD5Key(name, realm, psw),
 		expiry:      true,
 		validBefore: time.Now().Add(time.Duration(ACCOUNT_DEFAULT_EXPIRY) * time.Hour * 24),
+		secFeatEnabled: true,
+		passwordSHA256: genSHA256Key(name, realm, psw),
 	}
 
 	return nil
@@ -68,20 +95,32 @@ func (book *AccountBook) Delete(name string) {
 
 func (book *AccountBook) Find(name string) (string, error) {
 
-	book.accountLck.Lock()
-	defer book.accountLck.Unlock()
+	book.accountLck.RLock()
+	defer book.accountLck.RUnlock()
 
-	if psw, err := book.check(name); err != nil {
+	if acc, err := book.check(name); err != nil {
 		return "", err
 	} else {
-		return psw, nil
+		return acc.password, nil
+	}
+}
+
+func (book *AccountBook) FindSHA256(name string) (string, error) {
+
+	book.accountLck.RLock()
+	defer book.accountLck.RUnlock()
+
+	if acc, err := book.check(name); err != nil {
+		return "", err
+	} else {
+		return acc.passwordSHA256, nil
 	}
 }
 
 func (book *AccountBook) Has(name string) bool {
 
-	book.accountLck.Lock()
-	defer book.accountLck.Unlock()
+	book.accountLck.RLock()
+	defer book.accountLck.RUnlock()
 
 	_, ok := book.accounts[name]
 	return ok
@@ -103,7 +142,7 @@ func (book *AccountBook) Refresh(name string, expiry time.Time) error {
 	return nil
 }
 
-func (book *AccountBook) Reset(name, psw string) error {
+func (book *AccountBook) Reset(name, realm, psw string) error {
 
 	book.accountLck.Lock()
 	defer book.accountLck.Unlock()
@@ -114,7 +153,8 @@ func (book *AccountBook) Reset(name, psw string) error {
 	}
 
 	// set password
-	acc.password = psw
+	acc.password = genMD5Key(name, realm, psw)
+	acc.passwordSHA256 = genSHA256Key(name, realm, psw)
 
 	return nil
 }
@@ -179,31 +219,44 @@ func (book *AccountBook) ExpiryOff(name string) error {
 	return nil
 }
 
-func (book *AccountBook) check(name string) (string, error) {
+func (book *AccountBook) IsSecFeatEnabled(name string) (bool, error) {
+
+	book.accountLck.RLock()
+	defer book.accountLck.RUnlock()
+
+	acc, ok := book.accounts[name]
+	if !ok {
+		return false, fmt.Errorf("not found")
+	}
+
+	return acc.secFeatEnabled, nil
+}
+
+func (book *AccountBook) check(name string) (*account, error) {
 
 	// check name
 	acc, ok := book.accounts[name]
 	if !ok {
-		return "", fmt.Errorf("not found")
+		return nil, fmt.Errorf("not found")
 	}
 
 	// check enabled
 	if !acc.enabled {
-		return "", fmt.Errorf("account not valid")
+		return nil, fmt.Errorf("account not valid")
 	}
 
 	// check expiry
 	if time.Now().After(acc.validBefore) {
-		return "", fmt.Errorf("account expired")
+		return nil, fmt.Errorf("account expired")
 	}
 
-	return acc.password, nil
+	return acc, nil
 }
 
 func (book *AccountBook) UserTable() (result string) {
 
-	book.accountLck.Lock()
-	defer book.accountLck.Unlock()
+	book.accountLck.RLock()
+	defer book.accountLck.RUnlock()
 
 	for name, acc := range book.accounts {
 		enabled := ""
@@ -211,7 +264,8 @@ func (book *AccountBook) UserTable() (result string) {
 			enabled = "[inactive]"
 		}
 		result += fmt.Sprintf("user=%s %s\n", name, enabled)
-		result += fmt.Sprintf("  key=%s\n", dbg.DumpMem([]byte(acc.password), 0))
+		result += fmt.Sprintf("  MD5=%s\n", dbg.DumpMem([]byte(acc.password), 0))
+		result += fmt.Sprintf("  SHA256=%s\n", dbg.DumpMem([]byte(acc.passwordSHA256), 0))
 		result += fmt.Sprintf("  createdAt=%s\n", acc.createdAt.Format("2006-01-02 15:04:05"))
 
 		expiry := ""
@@ -225,6 +279,8 @@ func (book *AccountBook) UserTable() (result string) {
 			}
 			result += fmt.Sprintf("  expiry=%s %s\n", expiry, expired)
 		}
+
+		result += fmt.Sprintf("  securityFeature=%v\n", acc.secFeatEnabled)
 	}
 
 	return
