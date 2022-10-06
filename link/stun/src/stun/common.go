@@ -286,7 +286,7 @@ func processStunMessage(req []byte, addr *address) []byte {
 
 	// msg.print("request") // request
 
-	Info("[%s] %s %s", keygen(addr), msg.methodName, msg.encodingName)
+	Info("[%s] %s", keygen(addr), msg.print4Log())
 
 	msg, err = msg.process(addr)
 	if err != nil {
@@ -303,7 +303,7 @@ func processStunMessage(req []byte, addr *address) []byte {
 
 	// msg.print("response") // response
 
-	Info("[%s] %s %s", keygen(addr), msg.methodName, msg.encodingName)
+	Info("[%s] %s", keygen(addr), msg.print4Log())
 
 	resp := msg.buffer()
 	return resp

@@ -660,6 +660,46 @@ func (this *message) print(title string) {
 	fmt.Println(str)
 }
 
+func (this *message) print4Log() string {
+
+	// print stun message basic info
+	str := fmt.Sprintf("%s %s %dB ", this.methodName, this.encodingName, this.length)
+
+	// print stun attributes
+	for _, v := range this.attributes {
+		str += fmt.Sprintf("%s(%dB %s) ", v.typename, v.length, func(attr *attribute) string {
+
+			if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR ||
+				attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR ||
+				attr.typevalue == STUN_ATTR_XOR_PEER_ADDR {
+				addr, err := decodeXorAddr(attr)
+				if err != nil {
+					return fmt.Sprintf("err=%v", err)
+				}
+				return fmt.Sprintf("addr=%s:%d", addr.IP, addr.Port)
+			} else if attr.typevalue == STUN_ATTR_ERROR_CODE {
+				code, errStr, err := decodeErrorCode(attr)
+				if err != nil {
+					return fmt.Sprintf("err=%v", attr.typename, err)
+				}
+				return fmt.Sprintf("reason=%d %s", code, errStr)
+			} else if attr.typevalue == STUN_ATTR_NONCE {
+				return fmt.Sprintf("nonce=%s", decodeStringValue(attr))
+			} else if attr.typevalue == STUN_ATTR_REALM {
+				return fmt.Sprintf("realm=%s", decodeStringValue(attr))
+			} else if attr.typevalue == STUN_ATTR_USERNAME {
+				return fmt.Sprintf("user=%s", decodeStringValue(attr))
+			} else if attr.typevalue == STUN_ATTR_LIFETIME {
+				return fmt.Sprintf("t=%d", binary.BigEndian.Uint32(attr.value))
+			} else {
+				return "-"
+			}
+		}(v))
+	}
+
+	return str
+}
+
 func (this *message) findAttr(typevalue uint16) *attribute {
 
 	for _, attr := range this.attributes {
