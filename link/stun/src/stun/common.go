@@ -7,6 +7,7 @@ import (
 	"time"
 	"conf"
 	"crypto/tls"
+	. "util/log"
 )
 
 const (
@@ -283,7 +284,9 @@ func processStunMessage(req []byte, addr *address) []byte {
 		return nil
 	}
 
-	msg.print("request") // request
+	// msg.print("request") // request
+
+	Info("[%s] %s %s", keygen(addr), msg.methodName, msg.encodingName)
 
 	msg, err = msg.process(addr)
 	if err != nil {
@@ -298,7 +301,9 @@ func processStunMessage(req []byte, addr *address) []byte {
 		return nil
 	}
 
-	msg.print("response") // response
+	// msg.print("response") // response
+
+	Info("[%s] %s %s", keygen(addr), msg.methodName, msg.encodingName)
 
 	resp := msg.buffer()
 	return resp

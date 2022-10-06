@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"io"
 	"time"
+	. "util/log"
 )
 
 var (
@@ -26,6 +27,7 @@ func init() {
 	conf.Args.Key = flag.String("key", "server.key", "private key for sec transport")
 	conf.Args.Realm = flag.String("realm", "link", "used for long-term cred for TURN")
 	conf.Args.Http = flag.String("http", "8080", "port to receive http api request")
+	conf.Args.Log = flag.String("log", "stun.log", "path for log file")
 	flag.Var(&conf.Args.Users, "u", "add one user to TURN server")
 
 	flag.Parse()
@@ -38,6 +40,9 @@ func main() {
 		flag.Usage()
 		return
 	}
+
+	// open log file
+	SetLog(*conf.Args.Log)
 
 	// handle user account
 	loadUsers()

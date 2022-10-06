@@ -27,6 +27,7 @@ type argument struct {
 	Realm    *string
 	Users    arrayflags
 	Http     *string
+	Log      *string
 }
 
 type clientArgs struct {
