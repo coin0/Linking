@@ -151,8 +151,14 @@ func ListenUDP(ip, port string) error {
 
 		go func(req []byte, r *net.UDPAddr) {
 
+			// must convert to IPv4, sometimes it's in the form of IPv6
+			var ip net.IP
+			if ip = r.IP.To4(); ip == nil {
+				ip = r.IP // IPv6
+			}
+
 			addr := &address{
-				IP:   r.IP,
+				IP:   ip,
 				Port: r.Port,
 				Proto: NET_UDP,
 			}
@@ -176,8 +182,15 @@ func handleTCP(conn net.Conn, connType byte) {
 
 		rest := make([]byte, 0)
 		rm, _ := net.ResolveTCPAddr(conn.RemoteAddr().Network(), conn.RemoteAddr().String())
+
+		// must convert to IPv4, sometimes it's in the form of IPv6
+		var ip net.IP
+		if ip = rm.IP.To4(); ip == nil {
+			ip = rm.IP // IPv6
+		}
+
 		addr := &address{
-			IP:    rm.IP,
+			IP:    ip,
 			Port:  rm.Port,
 			Proto: connType,
 		}
