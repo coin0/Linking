@@ -20,7 +20,8 @@ var (
 )
 
 func init() {
-	conf.Args.IP = flag.String("ip", "127.0.0.1", "udp server binding IP address")
+	conf.Args.ServiceIP = flag.String("sip", "127.0.0.1", "IP address for service")
+	conf.Args.RelayedIP = flag.String("rip", "127.0.0.1", "IP address bound for relayed candidates")
 	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
 	conf.Args.SecPort = flag.String("sport", "443", "security port for TURNS")
 	conf.Args.Cert = flag.String("cert", "server.crt", "public certificate for sec transport")
@@ -55,27 +56,27 @@ func main() {
 	go func(wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			stun.ListenUDP(*conf.Args.IP, *conf.Args.Port)
+			stun.ListenUDP(*conf.Args.ServiceIP, *conf.Args.Port)
 		}
 	}(wg)
 
 	go func (wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			stun.ListenTCP(*conf.Args.IP, *conf.Args.Port)
+			stun.ListenTCP(*conf.Args.ServiceIP, *conf.Args.Port)
 		}
 	}(wg)
 
 	go func (wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			stun.ListenTLS(*conf.Args.IP, *conf.Args.SecPort)
+			stun.ListenTLS(*conf.Args.ServiceIP, *conf.Args.SecPort)
 		}
 	}(wg)
 
 	go func () {
 		for {
-			listenHTTP(*conf.Args.IP, *conf.Args.Http)
+			listenHTTP(*conf.Args.ServiceIP, *conf.Args.Http)
 		}
 	}()
 

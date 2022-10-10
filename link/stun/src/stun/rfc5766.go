@@ -847,7 +847,7 @@ func (alloc *allocation) save() error {
 	}
 
 	// save relay address
-	alloc.relay.IP = net.ParseIP(*conf.Args.IP).To4() // use default IP in args
+	alloc.relay.IP = net.ParseIP(*conf.Args.RelayedIP).To4() // use default IP in args
 	alloc.relay.Port = port
 
 	// spawn a thread to listen UDP channel
@@ -1039,7 +1039,7 @@ func (svr *relayserver) bind() (p int, _ error) {
 	for i := 0; i < 40; i++ {
 
 		p = allocPool.nextPort()
-		addr := fmt.Sprintf("%s:%d", *conf.Args.IP, p)
+		addr := fmt.Sprintf("%s:%d", *conf.Args.RelayedIP, p)
 
 		udp, err := net.ResolveUDPAddr("udp", addr)
 		if err != nil {
