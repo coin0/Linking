@@ -19,8 +19,9 @@ func (this *arrayflags) Set(value string) error {
 // -------------------------------------------------------------------------------------------------
 
 type argument struct {
-	ServiceIP *string
-	RelayedIP *string
+	ServiceIP   *string
+	RelayedIP   *string
+	RelayedInf  *string
 	Port     *string
 	SecPort  *string
 	Cert     *string

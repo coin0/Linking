@@ -9,6 +9,7 @@ import (
 	"strings"
 	"os"
 	"net/http"
+	"net"
 	"strconv"
 	"io"
 	"time"
@@ -22,6 +23,7 @@ var (
 func init() {
 	conf.Args.ServiceIP = flag.String("sip", "127.0.0.1", "IP address for service")
 	conf.Args.RelayedIP = flag.String("rip", "127.0.0.1", "IP address bound for relayed candidates")
+	conf.Args.RelayedInf = flag.String("rif", "", "first ipv4 of specified interface will be used for relay")
 	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
 	conf.Args.SecPort = flag.String("sport", "443", "security port for TURNS")
 	conf.Args.Cert = flag.String("cert", "server.crt", "public certificate for sec transport")
@@ -40,6 +42,16 @@ func main() {
 	if *help {
 		flag.Usage()
 		return
+	}
+
+	// override relayed IP address if necessary
+	if len(*conf.Args.RelayedInf) > 0 {
+		var err error
+		*conf.Args.RelayedIP, err = GetInfFirstIPv4(*conf.Args.RelayedInf)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 
 	// open log file
@@ -83,6 +95,27 @@ func main() {
 	wg.Wait()
 
 	return
+}
+
+func GetInfFirstIPv4(inf string) (addr string, err error) {
+
+	ief, err := net.InterfaceByName(inf)
+	if err != nil {
+		return "", fmt.Errorf("interface %s: %s", inf, err)
+	}
+
+	addrs, err := ief.Addrs()
+	if err != nil {
+		return "", fmt.Errorf("interface %s: %s", inf, err)
+	}
+
+	for _, addr := range addrs {
+		if ipv4 := addr.(*net.IPNet).IP.To4(); ipv4 != nil {
+			return ipv4.String(), nil
+		}
+	}
+
+	return "", fmt.Errorf("interface %s: no IPv4 address bound", inf)
 }
 
 func loadUsers() {
