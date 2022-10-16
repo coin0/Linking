@@ -9,6 +9,9 @@ import(
 	"os"
 	"conf"
 	"stun"
+	"time"
+	"util/ping"
+	. "util/log"
 )
 
 var (
@@ -17,6 +20,7 @@ var (
 	srflxProto   = ""
 	srflxIP      = ""
 	srflxPort    = 0
+	client, _    = stun.NewClient("", 0, "")
 )
 
 func init() {
@@ -25,6 +29,7 @@ func init() {
 	conf.ClientArgs.Username = flag.String("u", "", "TURN/STUN server username")
 	conf.ClientArgs.Password = flag.String("p", "", "TURN/STUN server password")
 	conf.ClientArgs.Debug    = flag.Bool("d", false, "switch to turn on debug mode")
+	conf.ClientArgs.Log      = flag.String("log", "cl.log", "path for log file")
 	flag.Parse()
 
 	// parse server address
@@ -65,14 +70,194 @@ func usage() {
 	fmt.Printf("r <lifetime>             : send a refresh request\n")
 	fmt.Printf("p <ip1> <ip2> <ip...>    : create permission request\n")
 	fmt.Printf("c <ip> <port>            : bind a channel\n")
-	fmt.Printf("x <IP> <port> <message>  : send a single line text message to peers\n")
+	fmt.Printf("x <iP> <port> <message>  : send a single line text message to peers\n")
 	fmt.Printf("l                        : start listening messages from other peers\n")
 	fmt.Printf("d                        : disconnect from the server\n")
 	fmt.Printf("q                        : quit this client\n")
+	fmt.Printf("--------------------------------------------------------------------\n")
+	fmt.Printf("P <ip> <port>            : automation test for pong response\n")
+	fmt.Printf("Q <ip> <port>            : automation test for ping request\n")
 	fmt.Printf("\n")
 }
 
+func ping1(ip string, port int) error {
+
+	meter := ping.NewMeter(time.Second * 5)
+
+	// respawn receive routine on error out and start initial routine
+	ech := make(chan error)
+	run := func() {
+		client.Receive(func(data []byte, err error) int {
+			if err != nil {
+				fmt.Println("#ERR#", err)
+				ech <- err
+				return -1
+			}
+			ping.UpdateArrTime(data, time.Now())
+
+			if err := meter.Read(data); err != nil {
+				fmt.Println("#ERR#", err)
+			}
+
+			return 0
+		})
+	}
+
+	if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
+	if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+	run()
+
+	const PKT_DURATION_MS = 20
+
+	// ticker for REFRESH allocation
+	reftick := time.NewTicker(time.Second * 300)
+	// ticker for CHANBIND
+	chantick := time.NewTicker(time.Second * 120)
+	// ticker to send ping packets
+	sendtick := time.NewTicker(time.Millisecond * PKT_DURATION_MS)
+
+	payload := make([]byte, 500, 500)
+	var seq uint64
+	for {
+		select {
+		case <-ech:
+			run()
+		case <-reftick.C:
+			if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
+		case <-chantick.C:
+			if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+		case <-sendtick.C:
+			ping.UpdateSeq(payload, seq)
+			seq++
+			ping.UpdateDur(payload, time.Millisecond * PKT_DURATION_MS)
+			ping.UpdateSendTime(payload, time.Now())
+			if err := client.Send(ip, port, payload); err != nil { return err }
+		}
+	}
+
+	return nil
+}
+
+func pong1(ip string, port int) error {
+
+	ech := make(chan error)
+	run := func() {
+		client.Receive(func(data []byte, err error) int {
+			if err != nil {
+				fmt.Println("#ERR#", err)
+				ech <- err
+				return -1
+			}
+			ping.UpdateRespTime(data, time.Now())
+
+			// send back to the peer who initiated ping test
+			if err := client.Send(ip, port, data); err != nil {
+				fmt.Println("#ERR#", err)
+				ech <- err
+				return -1
+			}
+
+			return 0
+		})
+	}
+
+	if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
+	if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+	run()
+
+	// just for keep alive
+	reftick := time.NewTicker(time.Second * 300)
+	chantick := time.NewTicker(time.Second * 120)
+	for {
+		select {
+		case <-ech:
+			run()
+		case <-reftick.C:
+			if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
+		case <-chantick.C:
+			if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+		}
+	}
+
+	return nil
+}
+
+func exec(input string) (err error) {
+
+	// get command parameter
+	get := func(str string, i int) string { return strings.Split(str, " ")[i] }
+	getAll := func(str string) []string { return strings.Split(str, " ")[1:] }
+
+	switch []byte(input)[0] {
+	case 'n':
+		if client, err = stun.NewClient(
+			conf.ClientArgs.ServerIP,
+			conf.ClientArgs.ServerPort,
+			conf.ClientArgs.Proto,
+		); err != nil {
+			fmt.Println("could not create client: %s", err)
+		} else {
+			fmt.Println("OK")
+		}
+	case 'b':
+		err = client.Bind()
+	case 'a':
+		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
+		client.Username = *conf.ClientArgs.Username
+		client.Password = *conf.ClientArgs.Password
+		t, _ := strconv.Atoi(get(input, 1))
+		client.Lifetime = uint32(t)
+		client.NoFragment = true
+		client.EvenPort = true
+		client.ReservToken = make([]byte, 8)
+		err = client.Alloc()
+	case 'r':
+		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
+		t, _ := strconv.Atoi(get(input, 1))
+		err = client.Refresh(uint32(t))
+	case 'p':
+		err = client.CreatePerm(getAll(input))
+	case 'c':
+		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
+		p, _ := strconv.Atoi(get(input, 2))
+		err = client.BindChan(get(input, 1), p)
+	case 'x':
+		if len(strings.Split(input, " ")) != 4 { return fmt.Errorf("arguments mismatch") }
+		p, _ := strconv.Atoi(get(input, 2))
+		err = client.Send(get(input, 1), p, []byte(get(input, 3)))
+	case 'l':
+		client.Receive(func(data []byte, err error) int {
+			if err != nil {
+				fmt.Println("#ERR#", err)
+				return -1
+			}
+			return 0
+		})
+		fmt.Println("OK")
+	case 'd':
+		client.Bye()
+		fmt.Println("OK")
+	case 'q':
+		fmt.Println("Bye!\n")
+		os.Exit(0)
+	case 'P':
+		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
+		p, _ := strconv.Atoi(get(input, 2))
+		err = ping1(get(input, 1), p)
+	case 'Q':
+		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
+		p, _ := strconv.Atoi(get(input, 2))
+		pong1(get(input, 1), p)
+	default:
+		err = fmt.Errorf("invalid command")
+	}
+
+	return
+}
+
 func main() {
+
+	SetLog(*conf.ClientArgs.Log)
 
 	// create a new stunclient
 	client, err := stun.NewClient(
@@ -83,10 +268,6 @@ func main() {
 	if err != nil {
 		fmt.Println("could not create client: %s", err)
 	}
-
-	// get command parameter
-	get := func(str string, i int) string { return strings.Split(str, " ")[i] }
-	getAll := func(str string) []string { return strings.Split(str, " ")[1:] }
 
 	for {
 		// wait for user input
@@ -103,64 +284,8 @@ func main() {
 			continue
 		}
 
-		switch []byte(input)[0] {
-		case 'n':
-			if client, err = stun.NewClient(
-				conf.ClientArgs.ServerIP,
-				conf.ClientArgs.ServerPort,
-				conf.ClientArgs.Proto,
-			); err != nil {
-				fmt.Println("could not create client: %s", err)
-			} else {
-				fmt.Println("OK")
-			}
-		case 'b':
-			err = client.Bind()
-		case 'a':
-			if len(strings.Split(input, " ")) != 2 { continue }
-			client.Username = *conf.ClientArgs.Username
-			client.Password = *conf.ClientArgs.Password
-			t, _ := strconv.Atoi(get(input, 1))
-			client.Lifetime = uint32(t)
-			client.NoFragment = true
-			client.EvenPort = true
-			client.ReservToken = make([]byte, 8)
-			err = client.Alloc()
-		case 'r':
-			if len(strings.Split(input, " ")) != 2 { continue }
-			t, _ := strconv.Atoi(get(input, 1))
-			err = client.Refresh(uint32(t))
-		case 'p':
-			err = client.CreatePerm(getAll(input))
-		case 'c':
-			if len(strings.Split(input, " ")) != 3 { continue }
-			p, _ := strconv.Atoi(get(input, 2))
-			err = client.BindChan(get(input, 1), p)
-		case 'x':
-			if len(strings.Split(input, " ")) != 4 { continue }
-			p, _ := strconv.Atoi(get(input, 2))
-			err = client.Send(get(input, 1), p, []byte(get(input, 3)))
-		case 'l':
-			client.Receive(func(data []byte, err error) int {
-				if err != nil {
-					fmt.Println("#ERR#", err)
-					return -1
-				}
-				return 0
-			})
-			fmt.Println("OK")
-		case 'd':
-			client.Bye()
-			fmt.Println("OK")
-		case 'q':
-			fmt.Println("Bye!\n")
-			os.Exit(0)
-		default:
-			err = fmt.Errorf("invalid command")
-		}
-
-		// print error
-		if err != nil { fmt.Println("#ERR#", err) }
+		// execute command with specified args and print error
+		if err = exec(input); err != nil { fmt.Println("#ERR#", err) }
 		err = nil
 	}
 }
