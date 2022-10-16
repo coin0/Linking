@@ -21,6 +21,9 @@ type stats struct {
 	jitter90     int64
 	jitter95     int64
 	jitter100    int64
+
+	// bandwidth
+	kbps         int64
 }
 
 func (s *stats) String() string {

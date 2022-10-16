@@ -5,6 +5,7 @@ import(
 	"sync"
 	"fmt"
 	"sort"
+	"sync/atomic"
 	. "util/log"
 )
 
@@ -16,6 +17,10 @@ type trafficMeter struct {
 	// buffer to cache ping packet meta info
 	buffer     []*packetInfo
 	bufferLck  *sync.Mutex
+
+	// downlink throughput in bytes
+	throughput int64
+	count      int64
 
 	// lock for start() and stop()
 	opLck      *sync.Mutex
@@ -98,6 +103,10 @@ func (meter *trafficMeter) Stop() error {
 
 func (meter *trafficMeter) Read(data []byte) error {
 
+	// traffic throughput
+	atomic.AddInt64(&meter.throughput, int64(len(data)))
+	atomic.AddInt64(&meter.count, 1)
+
 	if info, err := loadInfo(data); err != nil {
 		return err
 	} else {
@@ -110,6 +119,12 @@ func (meter *trafficMeter) Read(data []byte) error {
 }
 
 func (meter *trafficMeter) analyze() (*stats, error) {
+
+	// reset throughput
+	throughput := atomic.SwapInt64(&meter.throughput, 0)
+	count := atomic.SwapInt64(&meter.count, 0)
+	Info("io: downlink=%d kbps, pkt_count=%d",
+		throughput * 8 / 1024 / (meter.cycle.Milliseconds() / 1000), count)
 
 	meter.bufferLck.Lock()
 	defer meter.bufferLck.Unlock()
