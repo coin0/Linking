@@ -10,6 +10,7 @@ import (
 	"sync"
 	"crypto/md5"
 	"util/dbg"
+	. "util/log"
 )
 
 const (
@@ -1591,6 +1592,7 @@ func (cl *stunclient) Alloc() error {
 	// create initial alloc request
 	req, _ := newInitAllocationRequest()
 	if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+	Info("client > server(%s): %s", cl.remote, req.print4Log())
 	buf, err := cl.transmitMessage(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
@@ -1602,6 +1604,7 @@ func (cl *stunclient) Alloc() error {
 		return fmt.Errorf("alloc response: %s", err)
 	}
 	if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+	Info("server(%s) > client: %s", cl.remote, resp.print4Log())
 
 	// 401 failure on the first alloc request is expected behavior
 	code, errStr, err := resp.getAttrErrorCode()
@@ -1643,6 +1646,7 @@ func (cl *stunclient) Alloc() error {
 
 	// send subsequent request to server
 	if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+	Info("client > server(%s): %s", cl.remote, req.print4Log())
 	buf, err = cl.transmitMessage(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
@@ -1654,6 +1658,7 @@ func (cl *stunclient) Alloc() error {
 		return fmt.Errorf("alloc response: %s", err)
 	}
 	if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+	Info("server(%s) > client: %s", cl.remote, resp.print4Log())
 
 	// get response status
 	code, errStr, err = resp.getAttrErrorCode()
@@ -1692,6 +1697,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 
 		req, _ := newRefreshRequest(lifetime, cl.Username, cl.Password, cl.realm, cl.nonce)
 		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+		Info("client > server(%s): %s", cl.remote, req.print4Log())
 
 		// send request to server
 		buf, err := cl.transmitMessage(req)
@@ -1705,6 +1711,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 			return fmt.Errorf("refresh response: %s", err)
 		}
 		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+		Info("server(%s) > client: %s", cl.remote, resp.print4Log())
 
 		// handle error code
 		code, errStr, err := resp.getAttrErrorCode()
@@ -1748,6 +1755,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 				return addrs
 			}())
 		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+		Info("client > server(%s): %s", cl.remote, req.print4Log())
 
 		// send request to server
 		buf, err := cl.transmitMessage(req)
@@ -1761,6 +1769,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 			return fmt.Errorf("create-permission response: %s", err)
 		}
 		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+		Info("server(%s) > client: %s", cl.remote, resp.print4Log())
 
 		// handle error code
 		code, errStr, err := resp.getAttrErrorCode()
@@ -1945,6 +1954,7 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 		ch := cl.getChan(peer, needRenew)
 		req, _ := newChanBindRequest(cl.Username, cl.Password, cl.realm, cl.nonce, peer, ch)
 		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+		Info("client > server(%s): %s", cl.remote, req.print4Log())
 
 		// send request to server
 		buf, err := cl.transmitMessage(req)
@@ -1958,6 +1968,7 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 			return fmt.Errorf("channel-bind response: %s", err)
 		}
 		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+		Info("server(%s) > client: %s", cl.remote, resp.print4Log())
 
 		// handle error code
 		code, errStr, err := resp.getAttrErrorCode()

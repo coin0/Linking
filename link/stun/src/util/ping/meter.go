@@ -74,7 +74,7 @@ func (meter *trafficMeter) Start() error {
 				if stat, err := m.analyze(); err != nil {
 					Error("analyze(): %s", err.Error())
 				} else {
-					Info("stats: %s", stat)
+					Info("pingstats: %s", stat)
 				}
 			case <-m.ech:
 				// exit go routine
@@ -123,7 +123,7 @@ func (meter *trafficMeter) analyze() (*stats, error) {
 	// reset throughput
 	throughput := atomic.SwapInt64(&meter.throughput, 0)
 	count := atomic.SwapInt64(&meter.count, 0)
-	Info("io: downlink=%d kbps, pkt_count=%d",
+	Info("iostats: downlink=%d kbps, pkt_count=%d",
 		throughput * 8 / 1024 / (meter.cycle.Milliseconds() / 1000), count)
 
 	meter.bufferLck.Lock()

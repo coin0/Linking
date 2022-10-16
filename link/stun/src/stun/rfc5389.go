@@ -10,6 +10,7 @@ import (
 	"crypto/sha1"
 	"util/dbg"
 	"conf"
+	. "util/log"
 )
 
 const (
@@ -817,6 +818,7 @@ func (cl *stunclient) Bind() (err error) {
 	// create request
 	msg, _ := newBindingRequest()
 	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+	Info("client > server(%s): %s", cl.remote, msg.print4Log())
 	resp, err := cl.transmitMessage(msg)
 	if err != nil {
 		return fmt.Errorf("binding request: %s", err)
@@ -827,6 +829,7 @@ func (cl *stunclient) Bind() (err error) {
 		return fmt.Errorf("binding response: %s", err)
 	}
 	if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+	Info("server(%s) > client: %s", cl.remote, msg.print4Log())
 
 	// save srflx IP address
 	cl.srflx, err = msg.getAttrXorMappedAddr()
