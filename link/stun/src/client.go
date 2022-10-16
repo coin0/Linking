@@ -197,7 +197,7 @@ func exec(input string) (err error) {
 		); err != nil {
 			fmt.Println("could not create client: %s", err)
 		} else {
-			fmt.Println("OK")
+			client.DebugOn = *conf.ClientArgs.Debug
 		}
 	case 'b':
 		err = client.Bind()
@@ -233,10 +233,8 @@ func exec(input string) (err error) {
 			}
 			return 0
 		})
-		fmt.Println("OK")
 	case 'd':
 		client.Bye()
-		fmt.Println("OK")
 	case 'q':
 		fmt.Println("Bye!\n")
 		os.Exit(0)
@@ -260,19 +258,23 @@ func main() {
 	SetLog(*conf.ClientArgs.Log)
 
 	// create a new stunclient
-	client, err := stun.NewClient(
+	var err error
+	client, err = stun.NewClient(
 		conf.ClientArgs.ServerIP,
 		conf.ClientArgs.ServerPort,
 		conf.ClientArgs.Proto,
 	)
 	if err != nil {
 		fmt.Println("could not create client: %s", err)
+	} else {
+		client.DebugOn = *conf.ClientArgs.Debug
 	}
 
 	for {
 		// wait for user input
 		relayedIP, relayedPort, _ = client.RelayedAddr()
 		srflxProto, srflxIP, srflxPort, _ = client.SrflxAddr()
+
 		usage()
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("> ")
@@ -285,7 +287,11 @@ func main() {
 		}
 
 		// execute command with specified args and print error
-		if err = exec(input); err != nil { fmt.Println("#ERR#", err) }
+		if err = exec(input); err != nil {
+			fmt.Println("#ERR#", err)
+		} else {
+			fmt.Println("OK")
+		}
 		err = nil
 	}
 }

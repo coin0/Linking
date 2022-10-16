@@ -198,6 +198,9 @@ type stunclient struct {
 
 	// 8-byte reservation token
 	ReservToken []byte
+
+	// no message output when debug mode is on
+	DebugOn     bool
 }
 
 type subclient struct {
@@ -1587,7 +1590,7 @@ func (cl *stunclient) Alloc() error {
 
 	// create initial alloc request
 	req, _ := newInitAllocationRequest()
-	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+	if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 	buf, err := cl.transmitMessage(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
@@ -1598,7 +1601,7 @@ func (cl *stunclient) Alloc() error {
 	if err != nil {
 		return fmt.Errorf("alloc response: %s", err)
 	}
-	resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+	if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 
 	// 401 failure on the first alloc request is expected behavior
 	code, errStr, err := resp.getAttrErrorCode()
@@ -1639,7 +1642,7 @@ func (cl *stunclient) Alloc() error {
 	req.length += req.addAttrMsgIntegrity(string(key[0:16]))
 
 	// send subsequent request to server
-	req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+	if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 	buf, err = cl.transmitMessage(req)
 	if err != nil {
 		return fmt.Errorf("alloc request: %s", err)
@@ -1650,7 +1653,7 @@ func (cl *stunclient) Alloc() error {
 	if err != nil {
 		return fmt.Errorf("alloc response: %s", err)
 	}
-	resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+	if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 
 	// get response status
 	code, errStr, err = resp.getAttrErrorCode()
@@ -1688,7 +1691,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 	for retry := 2; retry > 0; {
 
 		req, _ := newRefreshRequest(lifetime, cl.Username, cl.Password, cl.realm, cl.nonce)
-		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 
 		// send request to server
 		buf, err := cl.transmitMessage(req)
@@ -1701,7 +1704,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 		if err != nil {
 			return fmt.Errorf("refresh response: %s", err)
 		}
-		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 
 		// handle error code
 		code, errStr, err := resp.getAttrErrorCode()
@@ -1744,7 +1747,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 				}
 				return addrs
 			}())
-		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 
 		// send request to server
 		buf, err := cl.transmitMessage(req)
@@ -1757,7 +1760,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 		if err != nil {
 			return fmt.Errorf("create-permission response: %s", err)
 		}
-		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 
 		// handle error code
 		code, errStr, err := resp.getAttrErrorCode()
@@ -1799,7 +1802,7 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 		// send data via channel if channel already exists otherwise via indication
 		if ch, ok := cl.channels[key]; ok {
 			chdata := newChannelData(ch, data[i:])
-			chdata.print(fmt.Sprintf("client > server(%s)", cl.remote))
+			if cl.DebugOn { chdata.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 			buf = chdata.buffer()
 
 			// https://tools.ietf.org/html/rfc5766#section-11.5
@@ -1821,7 +1824,7 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 				},
 				data[i:],
 			)
-			msg.print(fmt.Sprintf("client > server(%s)", cl.remote))
+			if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 			buf = msg.buffer()
 		}
 
@@ -1889,7 +1892,7 @@ func (cl *stunclient) receiveLoop(cb func([]byte, error)int) error {
 			if err != nil {
 				st = cb(nil, fmt.Errorf("invalid stun message: %s", err))
 			}
-			msg.print(fmt.Sprintf("server(%s) > client", cl.remote))
+			if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 			if b := msg.isDataIndication(); !b {
 				st = cb(nil, fmt.Errorf("data indication or channel data only"))
 			}
@@ -1903,7 +1906,7 @@ func (cl *stunclient) receiveLoop(cb func([]byte, error)int) error {
 			if err != nil {
 				st = cb(nil, fmt.Errorf("invalid channel data: %s", err))
 			}
-			chdata.print(fmt.Sprintf("server(%s) > client", cl.remote))
+			if cl.DebugOn { chdata.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 			st = cb(chdata.data, nil)
 		}
 
@@ -1941,7 +1944,7 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 
 		ch := cl.getChan(peer, needRenew)
 		req, _ := newChanBindRequest(cl.Username, cl.Password, cl.realm, cl.nonce, peer, ch)
-		req.print(fmt.Sprintf("client > server(%s)", cl.remote))
+		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 
 		// send request to server
 		buf, err := cl.transmitMessage(req)
@@ -1954,7 +1957,7 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 		if err != nil {
 			return fmt.Errorf("channel-bind response: %s", err)
 		}
-		resp.print(fmt.Sprintf("server(%s) > client", cl.remote))
+		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 
 		// handle error code
 		code, errStr, err := resp.getAttrErrorCode()
