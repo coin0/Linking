@@ -188,7 +188,7 @@ func (meter *trafficMeter) analyze() (*stats, error) {
 
 func getStats(list []*packetInfo, minSend time.Time) (*stats, error) {
 
-	if len(list) < 10 {
+	if len(list) == 0 {
 		return nil, fmt.Errorf("insufficient packets")
 	}
 
@@ -251,6 +251,10 @@ func getStats(list []*packetInfo, minSend time.Time) (*stats, error) {
 	total := maxSeq - minSeq + 1
 
 	return &stats{
+		seqMin:  minSeq,
+		seqMax:  maxSeq,
+		samples: len(jitters),
+
 		rttMin: minRtt,
 		rttMax: maxRtt,
 		rttAvg: avgRtt,
