@@ -89,26 +89,36 @@ func ping1(ip string, port, size, dur int) error {
 	run := func() {
 		client.Receive(func(data []byte, err error) int {
 			if err != nil {
-				fmt.Println("#ERR#", err)
+				Error("ping receive: %s", err.Error())
 				ech <- err
 				return -1
 			}
 			ping.UpdateArrTime(data, time.Now())
 
 			if err := meter.Read(data); err != nil {
-				fmt.Println("#ERR#", err)
+				Error("ping read: %s", err.Error())
 			}
 
 			return 0
 		})
 	}
+	refresh := func() {
+		if err := client.Refresh(600); err != nil {
+			Error("refresh error: %s", err.Error())
+		}
+	}
+	bindchan := func() {
+		if err := client.BindChan(ip, port); err != nil {
+			Error("bindchan error: %s", err.Error())
+		}
+	}
 
-	if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
-	if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+	refresh()
+	bindchan()
 	run()
 
 	// ticker for REFRESH allocation
-	reftick := time.NewTicker(time.Second * 300)
+	reftick := time.NewTicker(time.Second * 180)
 	// ticker for CHANBIND
 	chantick := time.NewTicker(time.Second * 120)
 	// ticker to send ping packets
@@ -131,9 +141,9 @@ func ping1(ip string, port, size, dur int) error {
 		case <-ech:
 			run()
 		case <-reftick.C:
-			if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
+			refresh()
 		case <-chantick.C:
-			if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+			bindchan()
 		case <-sendtick.C:
 			toSend := []byte{}
 			for r := size; r > 0; {
@@ -151,7 +161,9 @@ func ping1(ip string, port, size, dur int) error {
 				seq++
 				ping.UpdateDur(toSend, time.Duration(dur) * time.Millisecond)
 				ping.UpdateSendTime(toSend, time.Now())
-				if err := client.Send(ip, port, toSend); err != nil { return err }
+				if err := client.Send(ip, port, toSend); err != nil {
+					Error("ping send: %s", err.Error())
+				}
 			}
 		}
 	}
@@ -165,7 +177,7 @@ func pong1(ip string, port int) error {
 	run := func() {
 		client.Receive(func(data []byte, err error) int {
 			if err != nil {
-				fmt.Println("#ERR#", err)
+				Error("pong receive: %s", err.Error())
 				ech <- err
 				return -1
 			}
@@ -173,7 +185,7 @@ func pong1(ip string, port int) error {
 
 			// send back to the peer who initiated ping test
 			if err := client.Send(ip, port, data); err != nil {
-				fmt.Println("#ERR#", err)
+				Error("pong send: %s", err.Error())
 				ech <- err
 				return -1
 			}
@@ -181,22 +193,31 @@ func pong1(ip string, port int) error {
 			return 0
 		})
 	}
-
-	if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
-	if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+	refresh := func() {
+		if err := client.Refresh(600); err != nil {
+			Error("refresh error: %s", err.Error())
+		}
+	}
+	bindchan := func() {
+		if err := client.BindChan(ip, port); err != nil {
+			Error("bindchan error: %s", err.Error())
+		}
+	}
+	refresh()
+	bindchan()
 	run()
 
 	// just for keep alive
-	reftick := time.NewTicker(time.Second * 300)
+	reftick := time.NewTicker(time.Second * 180)
 	chantick := time.NewTicker(time.Second * 120)
 	for {
 		select {
 		case <-ech:
 			run()
 		case <-reftick.C:
-			if err := exec(fmt.Sprintf("r 600")); err != nil { return err }
+			refresh()
 		case <-chantick.C:
-			if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
+			bindchan()
 		}
 	}
 
@@ -215,9 +236,7 @@ func exec(input string) (err error) {
 			conf.ClientArgs.ServerIP,
 			conf.ClientArgs.ServerPort,
 			conf.ClientArgs.Proto,
-		); err != nil {
-			fmt.Println("could not create client: %s", err)
-		} else {
+		); err == nil {
 			client.DebugOn = *conf.ClientArgs.Debug
 		}
 	case 'b':
@@ -268,7 +287,7 @@ func exec(input string) (err error) {
 	case 'Q':
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
-		pong1(get(input, 1), p)
+		err = pong1(get(input, 1), p)
 	default:
 		err = fmt.Errorf("invalid command")
 	}
@@ -288,7 +307,7 @@ func main() {
 		conf.ClientArgs.Proto,
 	)
 	if err != nil {
-		fmt.Println("could not create client: %s", err)
+		fmt.Println("could not create client:", err)
 	} else {
 		client.DebugOn = *conf.ClientArgs.Debug
 	}
