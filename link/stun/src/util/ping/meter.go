@@ -10,6 +10,9 @@ import(
 )
 
 type trafficMeter struct {
+	// statistics
+	stats      *statistics
+
 	// analyze ping packet cached in buffer at specific interval
 	cycle      time.Duration
 	cycleTkr   *time.Ticker
@@ -36,6 +39,7 @@ type trafficMeter struct {
 func NewMeter(cycle time.Duration) *trafficMeter {
 
 	newMeter := &trafficMeter{
+		stats:     &statistics{},
 		cycle:     cycle,
 		cycleTkr:  time.NewTicker(cycle),
 		buffer:    []*packetInfo{},
@@ -118,7 +122,7 @@ func (meter *trafficMeter) Read(data []byte) error {
 	}
 }
 
-func (meter *trafficMeter) analyze() (*stats, error) {
+func (meter *trafficMeter) analyze() (*statistics, error) {
 
 	// reset throughput
 	throughput := atomic.SwapInt64(&meter.throughput, 0)
@@ -183,10 +187,10 @@ func (meter *trafficMeter) analyze() (*stats, error) {
 		meter.buffer = meter.buffer[end+1:]
 	}
 
-	return getStats(list, minSend)
+	return meter.getStats(list, minSend)
 }
 
-func getStats(list []*packetInfo, minSend time.Time) (*stats, error) {
+func (meter *trafficMeter) getStats(list []*packetInfo, minSend time.Time) (*statistics, error) {
 
 	if len(list) == 0 {
 		return nil, fmt.Errorf("insufficient packets")
@@ -250,10 +254,10 @@ func getStats(list []*packetInfo, minSend time.Time) (*stats, error) {
 
 	total := maxSeq - minSeq + 1
 
-	return &stats{
+	stats := &statistics{
 		seqMin:  minSeq,
 		seqMax:  maxSeq,
-		samples: len(jitters),
+		samples: uint64(len(jitters)),
 
 		rttMin: minRtt,
 		rttMax: maxRtt,
@@ -268,5 +272,18 @@ func getStats(list []*packetInfo, minSend time.Time) (*stats, error) {
 		jitter90:  jitters[len(jitters) * 90 / 100],
 		jitter95:  jitters[len(jitters) * 95 / 100],
 		jitter100: jitters[len(jitters) - 1],
-	}, nil
+	}
+
+	// get total statistics for the whole session
+	newSampleSum := meter.stats.samplesTotal + stats.samples
+	stats.rttTotal = (meter.stats.rttTotal * int64(meter.stats.samplesTotal) + totalRtt) / int64(newSampleSum)
+	stats.lossTotal = (meter.stats.lossTotal * float64(meter.stats.samplesTotal) +
+		stats.loss * float64(stats.samples)) / float64(newSampleSum)
+	stats.jitterTotal = (meter.stats.jitterAvg * int64(meter.stats.samplesTotal) + totalJitters) / int64(newSampleSum)
+	stats.samplesTotal = newSampleSum
+
+	// update new stats for the meter
+	meter.stats = stats
+
+	return stats, nil
 }
