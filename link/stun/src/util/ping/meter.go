@@ -243,11 +243,11 @@ func (meter *trafficMeter) getStats(list []*packetInfo, minSend time.Time) (*sta
 	// calculate loss rate according to jitter value
 	for i, v := range jitters {
 		jitters[i] = v - minBase
-		if jitters[i] >= (time.Millisecond * 800).Nanoseconds() {
+		if jitters[i] < (time.Millisecond * 400).Nanoseconds() {
 			jitter400++
 			jitter800++
-		} else if jitters[i] >= (time.Millisecond * 400).Nanoseconds() {
-			jitter400++
+		} else if jitters[i] < (time.Millisecond * 800).Nanoseconds() {
+			jitter800++
 		}
 		totalJitters += jitters[i]
 	}
@@ -264,8 +264,8 @@ func (meter *trafficMeter) getStats(list []*packetInfo, minSend time.Time) (*sta
 		rttAvg: avgRtt,
 
 		loss:    float64((total - uint64(len(jitters))) * 100.0 / total),
-		loss400: float64(jitter400 * 100.0 / total),
-		loss800: float64(jitter800 * 100.0 / total),
+		loss400: float64((total - jitter400) * 100.0 / total),
+		loss800: float64((total - jitter800) * 100.0 / total),
 
 		jitterAvg: totalJitters / int64(len(jitters)),
 		jitter80:  jitters[len(jitters) * 80 / 100],
