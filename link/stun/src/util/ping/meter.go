@@ -279,7 +279,7 @@ func (meter *trafficMeter) getStats(list []*packetInfo, minSend time.Time) (*sta
 	stats.rttTotal = (meter.stats.rttTotal * int64(meter.stats.samplesTotal) + totalRtt) / int64(newSampleSum)
 	stats.lossTotal = (meter.stats.lossTotal * float64(meter.stats.samplesTotal) +
 		stats.loss * float64(stats.samples)) / float64(newSampleSum)
-	stats.jitterTotal = (meter.stats.jitterAvg * int64(meter.stats.samplesTotal) + totalJitters) / int64(newSampleSum)
+	stats.jitterTotal = (meter.stats.jitterTotal * int64(meter.stats.samplesTotal) + totalJitters) / int64(newSampleSum)
 	stats.samplesTotal = newSampleSum
 
 	// update new stats for the meter
