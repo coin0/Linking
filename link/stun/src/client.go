@@ -74,13 +74,13 @@ func usage() {
 	fmt.Printf("l                        : start listening messages from other peers\n")
 	fmt.Printf("d                        : disconnect from the server\n")
 	fmt.Printf("q                        : quit this client\n")
-	fmt.Printf("--------------------------------------------------------------------\n")
-	fmt.Printf("P <ip> <port>            : automation test for pong response\n")
-	fmt.Printf("Q <ip> <port>            : automation test for ping request\n")
+	fmt.Printf("---------------------------------------------------------------------\n")
+	fmt.Printf("P <ip> <port> <sz> <int> : automation ping test with given sz and int\n")
+	fmt.Printf("Q <ip> <port>            : automation test for pong response\n")
 	fmt.Printf("\n")
 }
 
-func ping1(ip string, port int) error {
+func ping1(ip string, port, size, dur int) error {
 
 	meter := ping.NewMeter(time.Second * 5)
 
@@ -107,16 +107,24 @@ func ping1(ip string, port int) error {
 	if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
 	run()
 
-	const PKT_DURATION_MS = 20
-
 	// ticker for REFRESH allocation
 	reftick := time.NewTicker(time.Second * 300)
 	// ticker for CHANBIND
 	chantick := time.NewTicker(time.Second * 120)
 	// ticker to send ping packets
-	sendtick := time.NewTicker(time.Millisecond * PKT_DURATION_MS)
+	sendtick := time.NewTicker(time.Duration(dur) * time.Millisecond)
+	// MTU
+	const DEFAULT_MTU = 1200
 
-	payload := make([]byte, 500, 500)
+	oneSend := size
+	rest := []byte{}
+	if size > DEFAULT_MTU {
+		oneSend = DEFAULT_MTU
+		restBytes := size % DEFAULT_MTU
+		if restBytes < ping.PKT_MIN_SIZE { restBytes = ping.PKT_MIN_SIZE }
+		rest = make([]byte, restBytes, restBytes)
+	}
+	payload := make([]byte, oneSend, oneSend)
 	var seq uint64
 	for {
 		select {
@@ -127,11 +135,24 @@ func ping1(ip string, port int) error {
 		case <-chantick.C:
 			if err := exec(fmt.Sprintf("c %s %d", ip, port)); err != nil { return err }
 		case <-sendtick.C:
-			ping.UpdateSeq(payload, seq)
-			seq++
-			ping.UpdateDur(payload, time.Millisecond * PKT_DURATION_MS)
-			ping.UpdateSendTime(payload, time.Now())
-			if err := client.Send(ip, port, payload); err != nil { return err }
+			toSend := []byte{}
+			for r := size; r > 0; {
+				if r >= oneSend {
+					toSend = payload
+					r -= oneSend
+				} else {
+					// only when sending size > MTU
+					toSend = rest
+					r = 0
+				}
+
+				// send data to pong side
+				ping.UpdateSeq(toSend, seq)
+				seq++
+				ping.UpdateDur(toSend, time.Duration(dur) * time.Millisecond)
+				ping.UpdateSendTime(toSend, time.Now())
+				if err := client.Send(ip, port, toSend); err != nil { return err }
+			}
 		}
 	}
 
@@ -239,9 +260,11 @@ func exec(input string) (err error) {
 		fmt.Println("Bye!\n")
 		os.Exit(0)
 	case 'P':
-		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
+		if len(strings.Split(input, " ")) != 5 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
-		err = ping1(get(input, 1), p)
+		sz, _ := strconv.Atoi(get(input, 3))
+		dur, _ := strconv.Atoi(get(input, 4))
+		err = ping1(get(input, 1), p, sz, dur)
 	case 'Q':
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
