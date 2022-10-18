@@ -7,6 +7,7 @@ import(
 	"sort"
 	"sync/atomic"
 	. "util/log"
+	"math"
 )
 
 type trafficMeter struct {
@@ -140,7 +141,6 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 	now := time.Now()
 	list := []*packetInfo{}
 	maxSeq := uint64(0)
-	minSend := meter.buffer[0].sendts
 
 	// sort by recvts in ascending order
 	sort.Slice(meter.buffer, func(i, j int) bool {
@@ -152,9 +152,6 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 	for i, v := range meter.buffer {
 		if v.recvts.Before(now.Add(-meter.cycle)) {
 			end = i
-			if v.sendts.Before(minSend) {
-				minSend = v.sendts
-			}
 		} else {
 			break
 		}
@@ -175,9 +172,6 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 	for i, v := range meter.buffer {
 		if v.seq < maxSeq {
 			end = i
-			if v.sendts.Before(minSend) {
-				minSend = v.sendts
-			}
 		} else {
 			break
 		}
@@ -187,34 +181,35 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 		meter.buffer = meter.buffer[end+1:]
 	}
 
-	return meter.getStats(list, minSend)
+	return meter.getStats(list)
 }
 
-func (meter *trafficMeter) getStats(list []*packetInfo, minSend time.Time) (*statistics, error) {
+func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 
 	if len(list) == 0 {
 		return nil, fmt.Errorf("insufficient packets")
 	}
 
+	// sort by sequence
+	sort.Slice(list, func(i, j int) bool {
+
+		return list[i].seq < list[j].seq
+	})
+
 	minSeq := list[0].seq
-	maxSeq := minSeq
+	maxSeq := list[len(list)-1].seq
+	total := maxSeq - minSeq + 1
 
 	minRtt := list[0].recvts.UnixNano() - list[0].sendts.UnixNano()
-	maxRtt := minRtt
+	maxRtt, lastRtt := minRtt, minRtt
 	avgRtt, totalRtt := int64(0), int64(0)
 
 	jitters := []int64{}
-	minBase := list[0].recvts.UnixNano() - (list[0].sendts.UnixNano() - minSend.UnixNano())
+	jitter400, jitter800 := uint64(0), uint64(0)
+	totalJitters := int64(0)
 
-	// get max and min sequence and rtt
-	// collect jitters
+	// get max and min sequence, rtt and collect jitters
 	for _, v := range list {
-		if v.seq > maxSeq {
-			maxSeq = v.seq
-		} else if v.seq < minSeq {
-			minSeq = v.seq
-		}
-
 		rtt := v.recvts.UnixNano() - v.sendts.UnixNano()
 		totalRtt += rtt
 		if rtt > maxRtt {
@@ -223,11 +218,16 @@ func (meter *trafficMeter) getStats(list []*packetInfo, minSend time.Time) (*sta
 			minRtt = rtt
 		}
 
-		base := v.recvts.UnixNano() - (v.sendts.UnixNano() - minSend.UnixNano())
-		if base < minBase {
-			minBase = base
+		jitter := int64(math.Abs(float64(rtt - lastRtt)))
+		if jitter < (time.Millisecond * 400).Nanoseconds() {
+			jitter400++
+			jitter800++
+		} else if jitter < (time.Millisecond * 800).Nanoseconds() {
+			jitter800++
 		}
-		jitters = append(jitters, base)
+		totalJitters += jitter
+		jitters = append(jitters, jitter)
+		lastRtt = rtt
 	}
 	avgRtt = totalRtt / int64(len(list))
 
@@ -237,22 +237,6 @@ func (meter *trafficMeter) getStats(list []*packetInfo, minSend time.Time) (*sta
 		return jitters[i] < jitters[j]
 	})
 
-	jitter400, jitter800 := uint64(0), uint64(0)
-	totalJitters := int64(0)
-
-	// calculate loss rate according to jitter value
-	for i, v := range jitters {
-		jitters[i] = v - minBase
-		if jitters[i] < (time.Millisecond * 400).Nanoseconds() {
-			jitter400++
-			jitter800++
-		} else if jitters[i] < (time.Millisecond * 800).Nanoseconds() {
-			jitter800++
-		}
-		totalJitters += jitters[i]
-	}
-
-	total := maxSeq - minSeq + 1
 
 	stats := &statistics{
 		seqMin:  minSeq,
