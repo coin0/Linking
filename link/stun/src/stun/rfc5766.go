@@ -1888,10 +1888,13 @@ func (cl *stunclient) receiveLoop(cb func([]byte, error)int) error {
 
 	for {
 		// start to receive data from server side
+		cl.subLock.RLock()
 		buf := <- cl.subscribers[STUN_CLIENT_DATA_LISTENER].listener
+		cl.subLock.RUnlock()
 		if len(buf) == 0 {
 			st = cb(nil, fmt.Errorf("empty data"))
 		}
+
 
 		// only handle STUN DATA indications and CHANNEL messages, return nothing if we receive any other
 		// STUN messages, user is supposed to make sure this method won't be called during any stun request
