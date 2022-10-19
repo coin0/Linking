@@ -229,8 +229,9 @@ func pong1(ip string, port int) error {
 func exec(input string) (err error) {
 
 	defer func() {
-		err := recover()
-		Error("RECOVER:\n%s", err)
+		if err := recover(); err != nil {
+			Error("RECOVER:\n%s", err)
+		}
 	}()
 
 	// get command parameter
