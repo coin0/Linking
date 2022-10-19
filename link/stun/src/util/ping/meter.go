@@ -141,48 +141,8 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 		return meter.getStats(nil)
 	}
 
-	now := time.Now()
-	list := []*packetInfo{}
-	maxSeq := uint64(0)
-
-	// sort by recvts in ascending order
-	sort.Slice(meter.buffer, func(i, j int) bool {
-
-		return meter.buffer[i].recvts.Before(meter.buffer[j].recvts)
-	})
-	// we only analyze packets of recvts < now - cycle
-	end := -1
-	for i, v := range meter.buffer {
-		if v.recvts.Before(now.Add(-meter.cycle)) {
-			end = i
-		} else {
-			break
-		}
-	}
-	if end >= 0 {
-		maxSeq = meter.buffer[end].seq
-		list = meter.buffer[0:end+1]
-		meter.buffer = meter.buffer[end+1:]
-	}
-
-	// sort by seq in ascending order
-	sort.Slice(meter.buffer, func(i, j int) bool {
-
-		return meter.buffer[i].seq < meter.buffer[j].seq
-	})
-	// include extra packets of seq < maxSeq
-	end = -1
-	for i, v := range meter.buffer {
-		if v.seq < maxSeq {
-			end = i
-		} else {
-			break
-		}
-	}
-	if end >= 0 {
-		list = append(list, meter.buffer[0:end]...)
-		meter.buffer = meter.buffer[end+1:]
-	}
+	list := meter.buffer
+	meter.buffer = []*packetInfo{}
 
 	return meter.getStats(list)
 }
@@ -213,7 +173,7 @@ func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 		return meter.stats, nil
 	}
 
-	// sort by sequence
+	// sort by sequence in ascending order
 	sort.Slice(list, func(i, j int) bool {
 
 		return list[i].seq < list[j].seq
