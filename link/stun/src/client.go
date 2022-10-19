@@ -226,6 +226,11 @@ func pong1(ip string, port int) error {
 
 func exec(input string) (err error) {
 
+	defer func() {
+		err := recover()
+		Error("RECOVER:\n%s", err)
+	}()
+
 	// get command parameter
 	get := func(str string, i int) string { return strings.Split(str, " ")[i] }
 	getAll := func(str string) []string { return strings.Split(str, " ")[1:] }
