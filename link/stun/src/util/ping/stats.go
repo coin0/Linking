@@ -45,20 +45,28 @@ type statistics struct {
 
 func (s *statistics) String() string {
 
+	if s.sCounts == 0 || s.sCountsTotal == 0 {
+		return fmt.Sprintf(
+			"%d rx=%d,%d(kbps) seq=N/A rtt=N/A loss=N/A jitter=N/A",
+			s.index,
+			s.bps / 1024, s.bpsTotal / 1024,
+		)
+	}
+
 	// calculate loss ratio
 	loss := 100 - math.Min(100, float64(s.rCounts) * 100 / float64(s.sCounts))
 	lossTotal := 100 - math.Min(100, float64(s.rCountsTotal) * 100 / float64(s.sCountsTotal))
 
 	if s.rttMin < 0 || s.rttMax < 0 || s.rttAvg < 0 {
 		return fmt.Sprintf(
-			"%d io=%d,%d(kbps) seq=N/A rtt=N/A loss=%.2f,%.2f(%%) jitter=N/A",
+			"%d rx=%d,%d(kbps) seq=N/A rtt=N/A loss=%.2f,%.2f(%%) jitter=N/A",
 			s.index,
 			s.bps / 1024, s.bpsTotal / 1024,
 			loss, lossTotal,
 		)
 	} else {
 		return fmt.Sprintf(
-			"%d io=%d,%d(kbps) seq=%d,%d,%d rtt=%d,%d,%d,%d(us) loss=%.2f,%.2f(%%) jitter=%d,%d,%d,%d,%d,%d(us)",
+			"%d rx=%d,%d(kbps) seq=%d,%d,%d rtt=%d,%d,%d,%d(us) loss=%.2f,%.2f(%%) jitter=%d,%d,%d,%d,%d,%d(us)",
 			s.index,
 			s.bps / 1024, s.bpsTotal / 1024,
 			s.seqMin, s.seqMax, s.samples,
