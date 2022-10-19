@@ -22,9 +22,10 @@ type trafficMeter struct {
 	buffer     []*packetInfo
 	bufferLck  *sync.Mutex
 
-	// downlink throughput in bytes
-	throughput int64
-	count      int64
+	// send count
+	sendCounts  int64
+	recvCounts  int64
+	recvBytes   int64
 
 	// lock for start() and stop()
 	opLck      *sync.Mutex
@@ -79,7 +80,7 @@ func (meter *trafficMeter) Start() error {
 				if stat, err := m.analyze(); err != nil {
 					Error("analyze(): %s", err.Error())
 				} else {
-					Info("pingstats: %s", stat)
+					Info("stats: %s", stat)
 				}
 			case <-m.ech:
 				// exit go routine
@@ -106,11 +107,18 @@ func (meter *trafficMeter) Stop() error {
 	return nil
 }
 
-func (meter *trafficMeter) Read(data []byte) error {
+func (meter *trafficMeter) Send(data []byte) error {
+
+	atomic.AddInt64(&meter.sendCounts, 1)
+
+	return nil
+}
+
+func (meter *trafficMeter) Receive(data []byte) error {
 
 	// traffic throughput
-	atomic.AddInt64(&meter.throughput, int64(len(data)))
-	atomic.AddInt64(&meter.count, 1)
+	atomic.AddInt64(&meter.recvBytes, int64(len(data)))
+	atomic.AddInt64(&meter.recvCounts, 1)
 
 	if info, err := loadInfo(data); err != nil {
 		return err
@@ -125,17 +133,12 @@ func (meter *trafficMeter) Read(data []byte) error {
 
 func (meter *trafficMeter) analyze() (*statistics, error) {
 
-	// reset throughput
-	throughput := atomic.SwapInt64(&meter.throughput, 0)
-	count := atomic.SwapInt64(&meter.count, 0)
-	Info("iostats: downlink=%d kbps, pkt_count=%d",
-		throughput * 8 / 1024 / (meter.cycle.Milliseconds() / 1000), count)
-
 	meter.bufferLck.Lock()
 	defer meter.bufferLck.Unlock()
 
+	// if buffer is empty just return nil list
 	if len(meter.buffer) == 0 {
-		return nil, fmt.Errorf("empty buffer")
+		return meter.getStats(nil)
 	}
 
 	now := time.Now()
@@ -186,8 +189,28 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 
 func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 
-	if len(list) == 0 {
-		return nil, fmt.Errorf("insufficient packets")
+	// reset throughput and packet count and update io stats
+	meter.stats.bytes = atomic.SwapInt64(&meter.recvBytes, 0)
+	meter.stats.rCounts = atomic.SwapInt64(&meter.recvCounts, 0)
+	meter.stats.sCounts = atomic.SwapInt64(&meter.sendCounts, 0)
+
+	meter.stats.bytesTotal += meter.stats.bytes
+	meter.stats.rCountsTotal += meter.stats.rCounts
+	meter.stats.sCountsTotal += meter.stats.sCounts
+
+	meter.stats.bps = meter.stats.bytes * 8 / int64(meter.cycle.Seconds())
+	meter.stats.bpsTotal = meter.stats.bytesTotal * 8 / int64(meter.cycle.Seconds()) / (meter.stats.index + 1)
+
+	meter.stats.loss = 1.0 - math.Min(1.0, float64(meter.stats.rCounts) / float64(meter.stats.sCounts))
+	meter.stats.lossTotal = 1.0 - math.Min(1.0, float64(meter.stats.rCountsTotal) / float64(meter.stats.sCountsTotal))
+
+	meter.stats.index++
+
+	if list == nil || len(list) == 0 {
+		// set a nagative value to ignore quality stats
+		meter.stats.rttMax = -1
+
+		return meter.stats, nil
 	}
 
 	// sort by sequence
@@ -198,18 +221,17 @@ func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 
 	minSeq := list[0].seq
 	maxSeq := list[len(list)-1].seq
-	total := maxSeq - minSeq + 1
 
 	minRtt := list[0].recvts.UnixNano() - list[0].sendts.UnixNano()
 	maxRtt, lastRtt := minRtt, minRtt
 	avgRtt, totalRtt := int64(0), int64(0)
 
 	jitters := []int64{}
-	jitter400, jitter800 := uint64(0), uint64(0)
 	totalJitters := int64(0)
 
 	// get max and min sequence, rtt and collect jitters
 	for _, v := range list {
+		// get rtt
 		rtt := v.recvts.UnixNano() - v.sendts.UnixNano()
 		totalRtt += rtt
 		if rtt > maxRtt {
@@ -218,13 +240,9 @@ func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 			minRtt = rtt
 		}
 
+
+		// sum up jitters
 		jitter := int64(math.Abs(float64(rtt - lastRtt)))
-		if jitter < (time.Millisecond * 400).Nanoseconds() {
-			jitter400++
-			jitter800++
-		} else if jitter < (time.Millisecond * 800).Nanoseconds() {
-			jitter800++
-		}
 		totalJitters += jitter
 		jitters = append(jitters, jitter)
 		lastRtt = rtt
@@ -237,37 +255,26 @@ func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 		return jitters[i] < jitters[j]
 	})
 
+	meter.stats.seqMin = minSeq
+	meter.stats.seqMax = maxSeq
+	meter.stats.samples = uint64(len(jitters))
 
-	stats := &statistics{
-		seqMin:  minSeq,
-		seqMax:  maxSeq,
-		samples: uint64(len(jitters)),
+	meter.stats.rttMin = minRtt
+	meter.stats.rttMax = maxRtt
+	meter.stats.rttAvg = avgRtt
 
-		rttMin: minRtt,
-		rttMax: maxRtt,
-		rttAvg: avgRtt,
-
-		loss:    float64((total - uint64(len(jitters))) * 100.0 / total),
-		loss400: float64((total - jitter400) * 100.0 / total),
-		loss800: float64((total - jitter800) * 100.0 / total),
-
-		jitterAvg: totalJitters / int64(len(jitters)),
-		jitter80:  jitters[len(jitters) * 80 / 100],
-		jitter90:  jitters[len(jitters) * 90 / 100],
-		jitter95:  jitters[len(jitters) * 95 / 100],
-		jitter100: jitters[len(jitters) - 1],
-	}
+	meter.stats.jitterAvg = totalJitters / int64(len(jitters))
+	meter.stats.jitter80 = jitters[len(jitters) * 80 / 100]
+	meter.stats.jitter90 = jitters[len(jitters) * 90 / 100]
+	meter.stats.jitter95 =  jitters[len(jitters) * 95 / 100]
+	meter.stats.jitter100 = jitters[len(jitters) - 1]
 
 	// get total statistics for the whole session
-	newSampleSum := meter.stats.samplesTotal + stats.samples
-	stats.rttTotal = (meter.stats.rttTotal * int64(meter.stats.samplesTotal) + totalRtt) / int64(newSampleSum)
-	stats.lossTotal = (meter.stats.lossTotal * float64(meter.stats.samplesTotal) +
-		stats.loss * float64(stats.samples)) / float64(newSampleSum)
-	stats.jitterTotal = (meter.stats.jitterTotal * int64(meter.stats.samplesTotal) + totalJitters) / int64(newSampleSum)
-	stats.samplesTotal = newSampleSum
+	newSampleSum := meter.stats.samplesTotal + meter.stats.samples
 
-	// update new stats for the meter
-	meter.stats = stats
+	meter.stats.rttTotal = (meter.stats.rttTotal * int64(meter.stats.samplesTotal) + totalRtt) / int64(newSampleSum)
+	meter.stats.jitterTotal = (meter.stats.jitterTotal * int64(meter.stats.samplesTotal) + totalJitters) / int64(newSampleSum)
+	meter.stats.samplesTotal = newSampleSum
 
-	return stats, nil
+	return meter.stats, nil
 }

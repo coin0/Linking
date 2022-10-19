@@ -95,7 +95,7 @@ func ping1(ip string, port, size, dur int) error {
 			}
 			ping.UpdateArrTime(data, time.Now())
 
-			if err := meter.Read(data); err != nil {
+			if err := meter.Receive(data); err != nil {
 				Error("ping read: %s", err.Error())
 			}
 
@@ -163,6 +163,8 @@ func ping1(ip string, port, size, dur int) error {
 				ping.UpdateSendTime(toSend, time.Now())
 				if err := client.Send(ip, port, toSend); err != nil {
 					Error("ping send: %s", err.Error())
+				} else {
+					meter.Send(toSend)
 				}
 			}
 		}
