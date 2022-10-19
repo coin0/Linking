@@ -161,9 +161,6 @@ func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 	meter.stats.bps = meter.stats.bytes * 8 / int64(meter.cycle.Seconds())
 	meter.stats.bpsTotal = meter.stats.bytesTotal * 8 / int64(meter.cycle.Seconds()) / (meter.stats.index + 1)
 
-	meter.stats.loss = 1.0 - math.Min(1.0, float64(meter.stats.rCounts) / float64(meter.stats.sCounts))
-	meter.stats.lossTotal = 1.0 - math.Min(1.0, float64(meter.stats.rCountsTotal) / float64(meter.stats.sCountsTotal))
-
 	meter.stats.index++
 
 	if list == nil || len(list) == 0 {

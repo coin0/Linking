@@ -2,6 +2,7 @@ package ping
 
 import(
 	"fmt"
+	"math"
 )
 
 // to differentiate average stats for short term interval and whole session
@@ -33,10 +34,6 @@ type statistics struct {
 	bytes        int64
 	bytesTotal   int64
 
-	// loss
-	loss         float64
-	lossTotal    float64
-
 	// jitter
 	jitterAvg    int64
 	jitter80     int64
@@ -48,12 +45,16 @@ type statistics struct {
 
 func (s *statistics) String() string {
 
+	// calculate loss ratio
+	loss := 100 - math.Min(100, float64(s.rCounts) * 100 / float64(s.sCounts))
+	lossTotal := 100 - math.Min(100, float64(s.rCountsTotal) * 100 / float64(s.sCountsTotal))
+
 	if s.rttMin < 0 || s.rttMax < 0 || s.rttAvg < 0 {
 		return fmt.Sprintf(
 			"%d io=%d,%d(kbps) seq=N/A rtt=N/A loss=%.2f,%.2f(%%) jitter=N/A",
 			s.index,
 			s.bps / 1024, s.bpsTotal / 1024,
-			s.loss, s.lossTotal,
+			loss, lossTotal,
 		)
 	} else {
 		return fmt.Sprintf(
@@ -62,7 +63,7 @@ func (s *statistics) String() string {
 			s.bps / 1024, s.bpsTotal / 1024,
 			s.seqMin, s.seqMax, s.samples,
 			s.rttMin / 1000, s.rttAvg / 1000, s.rttMax / 1000, s.rttTotal / 1000,
-			s.loss, s.lossTotal,
+			loss, lossTotal,
 			s.jitterAvg / 1000, s.jitter80 / 1000, s.jitter90 / 1000, s.jitter95 / 1000,
 			s.jitter100 / 1000, s.jitterTotal / 1000,
 		)
