@@ -1377,6 +1377,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 			transactionID: []byte{},
 			listener: make(chan []byte),
 		},
+		reqMutex: &sync.Mutex{},
 	}
 
 	// try to connect to remote server by given protocol

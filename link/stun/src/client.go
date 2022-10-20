@@ -12,6 +12,7 @@ import(
 	"time"
 	"util/ping"
 	. "util/log"
+	"runtime/debug"
 )
 
 var (
@@ -230,7 +231,7 @@ func exec(input string) (err error) {
 
 	defer func() {
 		if err := recover(); err != nil {
-			Error("RECOVER:\n%s", err)
+			Error("RECOVER: %s\n%s", err, string(debug.Stack()))
 		}
 	}()
 
