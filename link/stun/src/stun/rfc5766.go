@@ -11,6 +11,7 @@ import (
 	"crypto/md5"
 	"util/dbg"
 	. "util/log"
+	"bytes"
 )
 
 const (
@@ -184,9 +185,12 @@ type stunclient struct {
 	tcpConn     *net.TCPConn
 	tcpBuffer   []byte
 
-	// message listener list
-	subscribers map[string]*subclient
-	subLock     *sync.RWMutex
+	// message listener
+	dataSub     *subclient
+	responseSub *subclient
+
+	// only one request is allowed simultaneously
+	reqMutex    *sync.Mutex
 
 	// alloc lifetime
 	Lifetime    uint32
@@ -1365,8 +1369,14 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 		},
 		channels: map[string]uint16{},
 		tcpBuffer: []byte{},
-		subscribers: map[string]*subclient{},
-		subLock: &sync.RWMutex{},
+		dataSub: &subclient{
+			transactionID: []byte{ 0 },
+			listener: make(chan []byte),
+		},
+		responseSub: &subclient{
+			transactionID: []byte{},
+			listener: make(chan []byte),
+		},
 	}
 
 	// try to connect to remote server by given protocol
@@ -1478,12 +1488,15 @@ func (cl *stunclient) receiveUDP() error {
 
 func (cl *stunclient) receive(data []byte) error {
 
-	cl.subLock.RLock()
-	defer cl.subLock.RUnlock()
-
 	if len(data) == 0 {
 		return fmt.Errorf("no data")
 	}
+
+	defer func() {
+		if err := recover(); err != nil {
+			Warn("RECOVER:\n%s")
+		}
+	}()
 
 	switch data[0] & MSG_TYPE_MASK {
 	case MSG_TYPE_STUN_MSG:
@@ -1493,20 +1506,20 @@ func (cl *stunclient) receive(data []byte) error {
 			return fmt.Errorf("invalid message")
 		}
 		if msg.isResponse() {
-			if _, ok := cl.subscribers[msg.transactionIDString()]; !ok {
+			if bytes.Compare(cl.responseSub.transactionID, msg.transactionID) != 0 {
 				return fmt.Errorf("transaction ID not found: %s", msg.transactionIDString())
 			}
-			cl.subscribers[msg.transactionIDString()].listener <-data
+			cl.responseSub.listener <-data
 			return nil
 		}
 	case MSG_TYPE_CHANNELDATA:
 		// handle channelData
 	}
 
-	if _, ok := cl.subscribers[STUN_CLIENT_DATA_LISTENER]; !ok {
+	if cl.dataSub.transactionID[0] == 0 {
 		return nil // just drop data since no receiver is avaialble 
 	}
-	cl.subscribers[STUN_CLIENT_DATA_LISTENER].listener <-data
+	cl.dataSub.listener <-data
 
 	return nil
 }
@@ -1528,6 +1541,9 @@ func (cl *stunclient) transmit(buf []byte) error {
 
 func (cl *stunclient) transmitMessage(m *message) (resp []byte, err error) {
 
+	cl.reqMutex.Lock()
+	defer cl.reqMutex.Unlock()
+
 	resp = nil
 	err = nil
 
@@ -1536,19 +1552,14 @@ func (cl *stunclient) transmitMessage(m *message) (resp []byte, err error) {
 		wg := &sync.WaitGroup{}
 		ech := make(chan error)
 
-		// add response listener
-		cl.subLock.Lock()
-		cl.subscribers[m.transactionIDString()] = &subclient{
-			transactionID: m.transactionID,
-			listener: make(chan []byte),
-		}
-		cl.subLock.Unlock()
+		// get original transaction ID from the message
+		cl.responseSub.transactionID = m.transactionID
+		cl.responseSub.listener = make(chan []byte)
 
-		// remove listener
+		// reset transaction ID and clear receiving pipe
 		defer func() {
-			cl.subLock.Lock()
-			delete(cl.subscribers, m.transactionIDString())
-			cl.subLock.Unlock()
+			cl.responseSub.transactionID = []byte{}
+			close(cl.responseSub.listener)
 		}()
 
 		// goroutine will wait for response or timeout
@@ -1558,7 +1569,7 @@ func (cl *stunclient) transmitMessage(m *message) (resp []byte, err error) {
 			select {
 			case <-time.NewTimer(time.Second * STUN_CLIENT_REQUEST_TIMEOUT).C:
 				err = fmt.Errorf("timeout")
-			case resp = <-cl.subscribers[m.transactionIDString()].listener:
+			case resp = <-cl.responseSub.listener:
 			case err = <-ech:
 			}
 		}()
@@ -1865,36 +1876,28 @@ func (cl *stunclient) Receive(cb func([]byte, error)int) error {
 
 func (cl *stunclient) receiveLoop(cb func([]byte, error)int) error {
 
-	// register listener to receive data
-	func() {
-		cl.subLock.Lock()
-		defer cl.subLock.Unlock()
+	// enable data subscriber by set first byte of transaction ID to 1
+	cl.dataSub.transactionID[0] = 1
 
-		// add response listener
-		cl.subscribers[STUN_CLIENT_DATA_LISTENER] = &subclient{
-			transactionID: nil,
-			listener: make(chan []byte),
-		}
-	}()
-
-	// delete listener
+	// disable data subscriber
 	defer func() {
-		cl.subLock.Lock()
-		defer cl.subLock.Unlock()
-		delete(cl.subscribers, STUN_CLIENT_DATA_LISTENER)
+		cl.dataSub.transactionID[0] = 0
+
+		// clear data receiving pipe
+		select {
+		case <-cl.dataSub.listener:
+		case <-time.NewTimer(time.Millisecond * 20).C:
+		}
 	}()
 
 	st := 0
 
 	for {
 		// start to receive data from server side
-		cl.subLock.RLock()
-		buf := <- cl.subscribers[STUN_CLIENT_DATA_LISTENER].listener
-		cl.subLock.RUnlock()
+		buf := <-cl.dataSub.listener
 		if len(buf) == 0 {
 			st = cb(nil, fmt.Errorf("empty data"))
 		}
-
 
 		// only handle STUN DATA indications and CHANNEL messages, return nothing if we receive any other
 		// STUN messages, user is supposed to make sure this method won't be called during any stun request
