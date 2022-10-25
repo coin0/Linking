@@ -7,6 +7,16 @@ import (
 	"bytes"
 )
 
+const (
+	LEVEL_VERB   = 90
+	LEVEL_DEBUG  = 80
+	LEVEL_INFO   = 70
+	LEVEL_WARN   = 60
+	LEVEL_ERROR  = 50
+	LEVEL_FATAL  = 40
+	LEVEL_PANIC  = 30
+)
+
 var (
 	panicL *log.Logger
 	fatalL *log.Logger
@@ -14,10 +24,12 @@ var (
 	warnL  *log.Logger
 	infoL  *log.Logger
 	debugL *log.Logger
+	verbL  *log.Logger
+
+	loglevel int
 
 	file   *os.File
 	buffer bytes.Buffer
-	
 )
 
 func SetLog(path string) {
@@ -37,8 +49,14 @@ func SetLog(path string) {
 	warnL = log.New(output, "[W] ", log.LstdFlags | log.Lmicroseconds)
 	infoL = log.New(output, "[I] ", log.LstdFlags | log.Lmicroseconds)
 	debugL = log.New(output, "[D] ", log.LstdFlags | log.Lmicroseconds)
+	verbL = log.New(output, "[V] ", log.LstdFlags | log.Lmicroseconds)
 
 	Debug("log file begins...")
+}
+
+func SetLevel(level int) {
+
+	loglevel = level
 }
 
 func UnsetLog() {
@@ -74,6 +92,14 @@ func Info(format string, v ...any) {
 
 func Debug(format string, v ...any) {
 
-	debugL.Printf(format, v...)
+	if loglevel >= LEVEL_DEBUG {
+		debugL.Printf(format, v...)
+	}
 }
 
+func Verbose(format string, v ...any) {
+
+	if loglevel >= LEVEL_VERB {
+		verbL.Printf(format, v...)
+	}
+}

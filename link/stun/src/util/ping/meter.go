@@ -153,7 +153,7 @@ func (meter *trafficMeter) Receive(data []byte) error {
 		info.status = PKT_OBSOLETE
 	} else {
 		if meter.seqHistory[info.seq].status == PKT_RECV {
-			Warn("packet with duplicated sequence number %d", info.seq)
+			Verbose("packet with duplicated sequence number %d", info.seq)
 		} else {
 			info.status = PKT_RECV
 		}

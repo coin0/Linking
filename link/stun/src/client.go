@@ -319,6 +319,7 @@ func main() {
 		fmt.Println("could not create client:", err)
 	} else {
 		client.DebugOn = *conf.ClientArgs.Debug
+		SetLevel(LEVEL_VERB)
 	}
 
 	for {
