@@ -25,14 +25,25 @@ type statistics struct {
 	rttTotal     int64
 
 	// IO
-	bps          int64
-	bpsTotal     int64
+	sBps         int64
+	sBpsTotal    int64
+	rBps         int64
+	rBpsTotal    int64
 	sCounts      int64
 	sCountsTotal int64
 	rCounts      int64
 	rCountsTotal int64
-	bytes        int64
-	bytesTotal   int64
+	sBytes       int64
+	sBytesTotal  int64
+	rBytes       int64
+	rBytesTotal  int64
+
+	// loss
+	seqSent      int64
+	seqSentTotal int64
+	seqRecv      int64
+	seqRecvTotal int64
+	seqObsolete  int64
 
 	// jitter
 	jitterAvg    int64
@@ -45,30 +56,33 @@ type statistics struct {
 
 func (s *statistics) String() string {
 
-	if s.sCounts == 0 || s.sCountsTotal == 0 {
+	// calculate loss ratio
+	if s.seqRecv + s.seqSent == 0 {
 		return fmt.Sprintf(
-			"%d rx=%d,%d(kbps) seq=N/A rtt=N/A loss=N/A jitter=N/A",
+			"%d tx=%d,%d rx=%d,%d in=%d,%d(kbps) seq=N/A rtt=N/A loss=N/A jitter=N/A",
 			s.index,
-			s.bps / 1024, s.bpsTotal / 1024,
+			s.sCounts, s.sCountsTotal,
+			s.rCounts, s.rCountsTotal, s.rBps / 1024, s.rBpsTotal / 1024,
 		)
 	}
-
-	// calculate loss ratio
-	loss := 100 - math.Min(100, float64(s.rCounts) * 100 / float64(s.sCounts))
-	lossTotal := 100 - math.Min(100, float64(s.rCountsTotal) * 100 / float64(s.sCountsTotal))
+	loss := math.Min(100, float64(s.seqSent) * 100 / float64(s.seqRecv + s.seqSent))
+	lossTotal := math.Min(100, float64(s.seqSentTotal) * 100 / float64(s.seqRecvTotal + s.seqSentTotal))
 
 	if s.rttMin < 0 || s.rttMax < 0 || s.rttAvg < 0 {
 		return fmt.Sprintf(
-			"%d rx=%d,%d(kbps) seq=N/A rtt=N/A loss=%.2f,%.2f(%%) jitter=N/A",
+			"%d tx=%d,%d rx=%d,%d in=%d,%d(kbps) seq=N/A rtt=N/A loss=%.2f,%.2f(%%) jitter=N/A",
 			s.index,
-			s.bps / 1024, s.bpsTotal / 1024,
+			s.sCounts, s.sCountsTotal,
+			s.rCounts, s.rCountsTotal, s.rBps / 1024, s.rBpsTotal / 1024,
 			loss, lossTotal,
 		)
 	} else {
 		return fmt.Sprintf(
-			"%d rx=%d,%d(kbps) seq=%d,%d,%d rtt=%d,%d,%d,%d(us) loss=%.2f,%.2f(%%) jitter=%d,%d,%d,%d,%d,%d(us)",
+			"%d tx=%d,%d rx=%d,%d in=%d,%d(kbps) seq=%d,%d,%d rtt=%d,%d,%d,%d(us) loss=%.2f,%.2f(%%) " +
+				"jitter=%d,%d,%d,%d,%d,%d(us)",
 			s.index,
-			s.bps / 1024, s.bpsTotal / 1024,
+			s.sCounts, s.sCountsTotal,
+			s.rCounts, s.rCountsTotal, s.rBps / 1024, s.rBpsTotal / 1024,
 			s.seqMin, s.seqMax, s.samples,
 			s.rttMin / 1000, s.rttAvg / 1000, s.rttMax / 1000, s.rttTotal / 1000,
 			loss, lossTotal,

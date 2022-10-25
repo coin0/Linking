@@ -15,6 +15,12 @@ const(
 	PKT_MIN_SIZE  = 40
 )
 
+const(
+	PKT_SENT      = 0
+	PKT_RECV      = 1
+	PKT_OBSOLETE  = 2
+)
+
 type packetInfo struct {
 	// [seq:8][dur:8][sendts:8][respts:8][recvts:8]
 
@@ -26,6 +32,9 @@ type packetInfo struct {
 
 	// payload size to estimate average bandwidth
 	size  int
+
+	// packet status
+	status int
 
 	// timestamp trackpoints to get RTT
 	// client (sendts) -> TURN -> peer (respTs) -> TURN -> client (recvTs)

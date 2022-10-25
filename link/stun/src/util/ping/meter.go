@@ -21,8 +21,12 @@ type trafficMeter struct {
 	// buffer to cache ping packet meta info
 	buffer     []*packetInfo
 	bufferLck  *sync.Mutex
+	// effective sent pkt count with respective seq
+	seqHistory  map[uint64]*packetInfo
+	seqSent     int64
+	seqRecv     int64
 
-	// send count
+	// send and receive count (dup or invalid pkt might be included)
 	sendCounts  int64
 	recvCounts  int64
 	recvBytes   int64
@@ -41,15 +45,16 @@ type trafficMeter struct {
 func NewMeter(cycle time.Duration) *trafficMeter {
 
 	newMeter := &trafficMeter{
-		stats:     &statistics{},
-		cycle:     cycle,
-		cycleTkr:  time.NewTicker(cycle),
-		buffer:    []*packetInfo{},
-		bufferLck: &sync.Mutex{},
-		opLck:     &sync.Mutex{},
-		wg:        &sync.WaitGroup{},
-		ech:       make(chan byte),
-		running:   false,
+		stats:      &statistics{},
+		cycle:      cycle,
+		cycleTkr:   time.NewTicker(cycle),
+		buffer:     []*packetInfo{},
+		bufferLck:  &sync.Mutex{},
+		seqHistory: map[uint64]*packetInfo{},
+		opLck:      &sync.Mutex{},
+		wg:         &sync.WaitGroup{},
+		ech:        make(chan byte),
+		running:    false,
 	}
 
 	newMeter.Start()
@@ -111,6 +116,19 @@ func (meter *trafficMeter) Send(data []byte) error {
 
 	atomic.AddInt64(&meter.sendCounts, 1)
 
+	info, err := loadInfo(data)
+	if err != nil {
+		return fmt.Errorf("invalid packet")
+	}
+
+	meter.bufferLck.Lock()
+	defer meter.bufferLck.Unlock()
+
+	if _, ok := meter.seqHistory[info.seq]; !ok {
+		info.status = PKT_SENT
+		meter.seqHistory[info.seq] = info
+	}
+
 	return nil
 }
 
@@ -120,15 +138,27 @@ func (meter *trafficMeter) Receive(data []byte) error {
 	atomic.AddInt64(&meter.recvBytes, int64(len(data)))
 	atomic.AddInt64(&meter.recvCounts, 1)
 
-	if info, err := loadInfo(data); err != nil {
+	info, err := loadInfo(data)
+	if err != nil {
 		return err
-	} else {
-		meter.bufferLck.Lock()
-		defer meter.bufferLck.Unlock()
-
-		meter.buffer = append(meter.buffer, info)
-		return nil
 	}
+
+	meter.bufferLck.Lock()
+	defer meter.bufferLck.Unlock()
+
+	meter.buffer = append(meter.buffer, info)
+	if _, ok := meter.seqHistory[info.seq]; !ok {
+		info.status = PKT_OBSOLETE
+	} else {
+		if meter.seqHistory[info.seq].status == PKT_RECV {
+			Warn("packet with duplicated sequence number %d", info.seq)
+		} else {
+			info.status = PKT_RECV
+		}
+	}
+	meter.seqHistory[info.seq] = info
+
+	return nil
 }
 
 func (meter *trafficMeter) analyze() (*statistics, error) {
@@ -136,13 +166,46 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 	meter.bufferLck.Lock()
 	defer meter.bufferLck.Unlock()
 
-	// if buffer is empty just return nil list
-	if len(meter.buffer) == 0 {
+	now := time.Now()
+
+	// accumulate sequence statistics for accurate loss ratio calculation
+	meter.stats.seqSent, meter.stats.seqRecv, meter.stats.seqObsolete = 0, 0, 0
+	for k, v := range meter.seqHistory {
+		if v.sendts.Before(now.Add(-meter.cycle)) {
+			switch v.status {
+			case PKT_SENT: meter.stats.seqSent++
+			case PKT_RECV: meter.stats.seqRecv++
+			case PKT_OBSOLETE: meter.stats.seqObsolete++
+			default:
+			}
+			delete(meter.seqHistory, k)
+		}
+	}
+	meter.stats.seqSentTotal += meter.stats.seqSent
+	meter.stats.seqRecvTotal += meter.stats.seqRecv
+
+	// sort by sendts in ascending order
+	sort.Slice(meter.buffer, func(i, j int) bool {
+
+		return meter.buffer[i].seq < meter.buffer[j].seq
+	})
+
+	// we only analyze packets of recvts < now - cycle
+	list := []*packetInfo{}
+	end := -1
+	for i, v := range meter.buffer {
+		if v.sendts.After(now.Add(-meter.cycle)) {
+			end = i
+			break
+		}
+	}
+	if end >= 0 {
+		list = meter.buffer[0:end]
+		meter.buffer = meter.buffer[end+1:]
+	} else {
+		// if buffer is empty just return nil list
 		return meter.getStats(nil)
 	}
-
-	list := meter.buffer
-	meter.buffer = []*packetInfo{}
 
 	return meter.getStats(list)
 }
@@ -150,16 +213,16 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 
 	// reset throughput and packet count and update io stats
-	meter.stats.bytes = atomic.SwapInt64(&meter.recvBytes, 0)
+	meter.stats.rBytes = atomic.SwapInt64(&meter.recvBytes, 0)
 	meter.stats.rCounts = atomic.SwapInt64(&meter.recvCounts, 0)
 	meter.stats.sCounts = atomic.SwapInt64(&meter.sendCounts, 0)
 
-	meter.stats.bytesTotal += meter.stats.bytes
+	meter.stats.rBytesTotal += meter.stats.rBytes
 	meter.stats.rCountsTotal += meter.stats.rCounts
 	meter.stats.sCountsTotal += meter.stats.sCounts
 
-	meter.stats.bps = meter.stats.bytes * 8 / int64(meter.cycle.Seconds())
-	meter.stats.bpsTotal = meter.stats.bytesTotal * 8 / int64(meter.cycle.Seconds()) / (meter.stats.index + 1)
+	meter.stats.rBps = meter.stats.rBytes * 8 / int64(meter.cycle.Seconds())
+	meter.stats.rBpsTotal = meter.stats.rBytesTotal * 8 / int64(meter.cycle.Seconds()) / (meter.stats.index + 1)
 
 	meter.stats.index++
 
