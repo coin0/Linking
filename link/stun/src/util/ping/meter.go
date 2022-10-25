@@ -29,6 +29,7 @@ type trafficMeter struct {
 	// send and receive count (dup or invalid pkt might be included)
 	sendCounts  int64
 	recvCounts  int64
+	sendBytes   int64
 	recvBytes   int64
 
 	// lock for start() and stop()
@@ -114,6 +115,7 @@ func (meter *trafficMeter) Stop() error {
 
 func (meter *trafficMeter) Send(data []byte) error {
 
+	atomic.AddInt64(&meter.sendBytes, int64(len(data)))
 	atomic.AddInt64(&meter.sendCounts, 1)
 
 	info, err := loadInfo(data)
@@ -214,15 +216,20 @@ func (meter *trafficMeter) getStats(list []*packetInfo) (*statistics, error) {
 
 	// reset throughput and packet count and update io stats
 	meter.stats.rBytes = atomic.SwapInt64(&meter.recvBytes, 0)
+	meter.stats.sBytes = atomic.SwapInt64(&meter.sendBytes, 0)
 	meter.stats.rCounts = atomic.SwapInt64(&meter.recvCounts, 0)
 	meter.stats.sCounts = atomic.SwapInt64(&meter.sendCounts, 0)
 
 	meter.stats.rBytesTotal += meter.stats.rBytes
+	meter.stats.sBytesTotal += meter.stats.sBytes
 	meter.stats.rCountsTotal += meter.stats.rCounts
 	meter.stats.sCountsTotal += meter.stats.sCounts
 
 	meter.stats.rBps = meter.stats.rBytes * 8 / int64(meter.cycle.Seconds())
 	meter.stats.rBpsTotal = meter.stats.rBytesTotal * 8 / int64(meter.cycle.Seconds()) / (meter.stats.index + 1)
+
+	meter.stats.sBps = meter.stats.sBytes * 8 / int64(meter.cycle.Seconds())
+	meter.stats.sBpsTotal = meter.stats.sBytesTotal * 8 / int64(meter.cycle.Seconds()) / (meter.stats.index + 1)
 
 	meter.stats.index++
 
