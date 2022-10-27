@@ -324,7 +324,7 @@ func main() {
 	if client.DebugOn {
 		SetLevel(LEVEL_VERB)
 	} else {
-		SetLevel(LEVEL_DEBUG)
+		SetLevel(LEVEL_INFO)
 	}
 
 	for {

@@ -61,7 +61,7 @@ func SetLevel(level int) {
 
 func UnsetLog() {
 
-	Debug("log file ends...")
+	Info("log file ends...")
 	file.Close()
 }
 
