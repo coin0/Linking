@@ -51,7 +51,7 @@ func SetLog(path string) {
 	debugL = log.New(output, "[D] ", log.LstdFlags | log.Lmicroseconds)
 	verbL = log.New(output, "[V] ", log.LstdFlags | log.Lmicroseconds)
 
-	Debug("log file begins...")
+	Info("log file %s begins...", path)
 }
 
 func SetLevel(level int) {
