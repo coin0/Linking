@@ -12,6 +12,7 @@ import (
 	"util/dbg"
 	. "util/log"
 	"bytes"
+	"crypto/tls"
 )
 
 const (
@@ -182,7 +183,7 @@ type stunclient struct {
 	udpConn     *net.UDPConn
 
 	// not nil if using TCP
-	tcpConn     *net.TCPConn
+	tcpConn     net.Conn
 	tcpBuffer   []byte
 
 	// message listener
@@ -1364,6 +1365,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 	// initialize the client
 	cl = &stunclient{
 		remote: &address{
+			Host: ip,
 			IP: net.ParseIP(ip),
 			Port: port,
 		},
@@ -1385,7 +1387,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 		switch p {
 		case "tcp": err = cl.connectTCP(); return NET_TCP
 		case "udp": err = cl.connectUDP(); return NET_UDP
-		case "tls": return NET_TLS
+		case "tls": err = cl.connectTLS(); return NET_TLS
 		default: err = cl.connectUDP(); return NET_UDP // default type
 		}
 	}(proto)
@@ -1438,6 +1440,24 @@ func (cl *stunclient) connectUDP() error {
 	cl.udpConn = conn
 
 	go cl.receiveUDP()
+
+	return nil
+}
+
+func (cl *stunclient) connectTLS() error {
+
+	if cl.tcpConn != nil {
+		return nil
+	}
+
+	// start dialing TURNS server with TLS handshake
+	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", cl.remote.Host, cl.remote.Port), &tls.Config{})
+	if err != nil {
+		return fmt.Errorf("dial TLS: %s", err)
+	}
+	cl.tcpConn = conn
+
+	go cl.receiveTCP()
 
 	return nil
 }
@@ -1534,7 +1554,7 @@ func (cl *stunclient) transmit(buf []byte) error {
 	switch cl.remote.Proto {
 	case NET_TCP: return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf)
 	case NET_UDP: return transmitUDP(cl.udpConn, cl.remote, cl.srflx, buf)
-	case NET_TLS:
+	case NET_TLS: return transmitTCP(cl.tcpConn, cl.remote, cl.srflx, buf)
 	}
 
 	return fmt.Errorf("unsupported protocol")

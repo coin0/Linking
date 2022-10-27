@@ -27,6 +27,7 @@ const (
 )
 
 type address struct {
+	Host    string
 	IP      net.IP
 	Port    int
 	Proto   byte
@@ -483,6 +484,13 @@ func parseAttributeType(db uint16) string {
 
 func (addr *address) String() string {
 
+	var url string
+	if len(addr.Host) > 0 {
+		url = addr.Host
+	} else {
+		url = addr.IP.String()
+	}
+
 	return fmt.Sprintf("%s://%s:%d",
 		func(p byte) string {
 			switch p {
@@ -491,14 +499,14 @@ func (addr *address) String() string {
 			case NET_TLS: return "tls"
 			default: return "unknown"
 			}
-		}(addr.Proto), addr.IP, addr.Port)
+		}(addr.Proto), url, addr.Port)
 }
 
 // -------------------------------------------------------------------------------------------------
 
 // TransmitTCP() and TransmitUDP() are used by stun clients
 
-func transmitTCP(conn *net.TCPConn, r, l *address, buf []byte) error {
+func transmitTCP(conn net.Conn, r, l *address, buf []byte) error {
 
 	// send message to target server
 	_, err := conn.Write(buf)
