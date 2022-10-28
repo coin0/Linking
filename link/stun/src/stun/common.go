@@ -21,8 +21,16 @@ const (
 )
 
 const (
+	// tcp buffer size in user space
 	TCP_MAX_TIMEOUT    = 300
-	TCP_MAX_BUF_SIZE   = 1024 * 1024 * 3 // 3MB 
+	TCP_MAX_BUF_SIZE   = 1024 * 1024 * 3 // 3MB
+
+	// socket buffer size
+	TCP_SO_RECVBUF_SIZE  = 1024 * 1024 * 1 // 1MB
+	TCP_SO_SNDBUF_SIZE   = 1024 * 1024 * 1 // 1MB
+	UDP_SO_RECVBUF_SIZE  = 1024 * 1024 * 4 // 4MB
+	UDP_SO_SNDBUF_SIZE   = 1024 * 1024 * 4 // 4MB
+
 	DEFAULT_MTU        = 1500
 )
 
@@ -127,6 +135,12 @@ func ListenTCP(ip, port string) error {
 			return fmt.Errorf("TCP accept: %s", err)
 		}
 
+		// set TCP socket options
+		tcpConn.SetNoDelay(true)
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+
 		handleTCP(tcpConn, NET_TCP)
 	}
 }
@@ -142,6 +156,10 @@ func ListenUDP(ip, port string) error {
 		return fmt.Errorf("listen UDP: %s", err)
 	}
 	defer udpConn.Close()
+
+	// set UDP socket options
+	udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
+	udpConn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
 
 	for {
 		buf := make([]byte, DEFAULT_MTU)

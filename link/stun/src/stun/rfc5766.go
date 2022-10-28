@@ -1060,6 +1060,9 @@ func (svr *relayserver) bind() (p int, _ error) {
 			continue
 		}
 
+		svr.conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
+		svr.conn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
+
 		svr.status = TURN_RELAY_BINDED
 		return p, nil
 	}
@@ -1414,6 +1417,11 @@ func (cl *stunclient) connectTCP() error {
 	if err != nil {
 		return fmt.Errorf("dial TCP: %s", err)
 	}
+	// set TCP socket options
+	conn.SetNoDelay(true)
+	conn.SetKeepAlive(true)
+	conn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+	conn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
 	cl.tcpConn = conn
 
 	go cl.receiveTCP()
@@ -1437,6 +1445,9 @@ func (cl *stunclient) connectUDP() error {
 	if err != nil {
 		return fmt.Errorf("dial UDP: %s", err)
 	}
+	// set UDP socket options
+	conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
+	conn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
 	cl.udpConn = conn
 
 	go cl.receiveUDP()
