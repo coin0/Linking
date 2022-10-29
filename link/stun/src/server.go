@@ -22,7 +22,7 @@ var (
 
 func init() {
 	conf.Args.ServiceIP = flag.String("sip", "127.0.0.1", "IP address for service")
-	conf.Args.RelayedIP = flag.String("rip", "127.0.0.1", "IP address bound for relayed candidates")
+	conf.Args.RelayedIP = flag.String("rip", "", "IP address bound for relayed candidates")
 	conf.Args.RelayedInf = flag.String("rif", "", "first ipv4 of specified interface will be used for relay")
 	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
 	conf.Args.Cert = flag.String("cert", "server.crt", "public certificate for sec transport")
@@ -51,6 +51,8 @@ func main() {
 			fmt.Println(err)
 			os.Exit(1)
 		}
+	} else if len(*conf.Args.RelayedIP) == 0 {
+		*conf.Args.RelayedIP = *conf.Args.ServiceIP
 	}
 
 	// open log file
