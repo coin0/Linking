@@ -21,8 +21,8 @@ const (
 )
 
 const (
-	// tcp buffer size in user space
 	TCP_MAX_TIMEOUT    = 300
+	// tcp buffer size in user space
 	TCP_MAX_BUF_SIZE   = 1024 * 1024 * 3 // 3MB
 
 	// socket buffer size
@@ -44,6 +44,13 @@ type address struct {
 type tcpPool struct {
 	conns   map[string]net.Conn
 	lck     *sync.Mutex
+}
+
+// a dummy connection to hook tlsConn.Read() in order to retain the
+// first STUN packet for TURN TCP
+type dummyConn struct {
+	tcpConn *net.TCPConn
+	readBuf []byte
 }
 
 var (
@@ -86,6 +93,61 @@ func (pool *tcpPool) del(addr *address) {
 	pool.lck.Lock()
 	defer pool.lck.Unlock()
 	delete(pool.conns, keygen(addr))
+}
+
+// -------------------------------------------------------------------------------------------------
+
+func newDummyConn(tcpConn *net.TCPConn) *dummyConn {
+
+	return &dummyConn{
+		tcpConn: tcpConn,
+		readBuf: []byte{},
+	}
+}
+
+func (c *dummyConn) Read(b []byte) (n int, err error) {
+
+	// hook tlsConn.Read() and get first request from stun client
+	n, err = c.tcpConn.Read(b)
+	if err == nil {
+		c.readBuf = append(c.readBuf, b[:n]...)
+	}
+	return
+}
+
+func (c *dummyConn) Write(b []byte) (n int, err error) {
+
+	return c.tcpConn.Write(b)
+}
+
+func (c *dummyConn) Close() error {
+
+	return c.tcpConn.Close()
+}
+
+func (c *dummyConn) LocalAddr() net.Addr {
+
+	return c.tcpConn.LocalAddr()
+}
+
+func (c *dummyConn) RemoteAddr() net.Addr {
+
+	return c.tcpConn.RemoteAddr()
+}
+
+func (c *dummyConn) SetDeadline(t time.Time) error {
+
+	return c.tcpConn.SetDeadline(t)
+}
+
+func (c *dummyConn) SetReadDeadline(t time.Time) error {
+
+	return c.tcpConn.SetReadDeadline(t)
+}
+
+func (c *dummyConn) SetWriteDeadline(t time.Time) error {
+
+	return c.tcpConn.SetWriteDeadline(t)
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -180,21 +242,9 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
 
 		rest := make([]byte, 0)
-		rm, _ := net.ResolveTCPAddr(tcpConn.RemoteAddr().Network(), tcpConn.RemoteAddr().String())
 
-		// must convert to IPv4, sometimes it's in the form of IPv6
-		var ip net.IP
-		if ip = rm.IP.To4(); ip == nil {
-			ip = rm.IP // IPv6
-		}
-
-		// demux plain TCP and TLS over TCP by parsing ClientHello
-		connType, conn := demuxTCP(tcpConn, tlsConf)
-		addr := &address{
-			IP:    ip,
-			Port:  rm.Port,
-			Proto: connType,
-		}
+		// demux TCP TLS and retain data read by tls.handshake()
+		conn, addr := demuxTCP(tcpConn, tlsConf)
 
 		defer tcpConns.del(addr)
 		defer conn.Close()
@@ -229,15 +279,44 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 	}()
 }
 
-func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (connType byte, conn net.Conn) {
+func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (conn net.Conn, addr *address) {
 
-	// probe TLS ClientHello
-	tlsConn := tls.Server(tcpConn, tlsConf)
-	if err := tlsConn.Handshake(); err != nil {
-		return NET_TCP, tcpConn
+	rm, _ := net.ResolveTCPAddr(tcpConn.RemoteAddr().Network(), tcpConn.RemoteAddr().String())
+
+	// must convert to IPv4, sometimes it's in the form of IPv6
+	var ip net.IP
+	if ip = rm.IP.To4(); ip == nil {
+		ip = rm.IP // IPv6
 	}
 
-	return NET_TLS, tlsConn
+	addr = &address{
+		IP:    ip,
+		Port:  rm.Port,
+	}
+
+	// set TCP timeout before TLS handshake
+	tcpConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
+
+	// probe TLS ClientHello
+	dummy := newDummyConn(tcpConn)
+	tlsConn := tls.Server(dummy, tlsConf)
+
+	if err := tlsConn.Handshake(); err != nil {
+		// unable to parse ClientHello, we think this is a plain TCP connection
+		conn, addr.Proto = tcpConn, NET_TCP
+
+		// we must retain the data read by tls.Handshake() then
+		// process this request as the initial allocation
+		if one, _, err := decodeTCP(dummy.readBuf); err == nil {
+			if resp := process(one, addr); resp != nil {
+				conn.Write(resp)
+			}
+		}
+	} else {
+		conn, addr.Proto = tlsConn, NET_TLS
+	}
+
+	return
 }
 
 func decodeTCP(req []byte) ([]byte, []byte, error) {
