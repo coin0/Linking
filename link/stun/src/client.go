@@ -317,6 +317,7 @@ func main() {
 	)
 	if err != nil {
 		fmt.Println("could not create client:", err)
+		Fatal("create client: %s", err)
 	} else {
 		client.DebugOn = *conf.ClientArgs.Debug
 	}
