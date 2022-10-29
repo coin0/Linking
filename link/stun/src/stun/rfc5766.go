@@ -1388,9 +1388,9 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 	// try to connect to remote server by given protocol
 	cl.remote.Proto = func(p string) byte {
 		switch p {
-		case "tcp": err = cl.connectTCP(); return NET_TCP
+		case "tcp": err = cl.connectTCP(NET_TCP); return NET_TCP
 		case "udp": err = cl.connectUDP(); return NET_UDP
-		case "tls": err = cl.connectTLS(); return NET_TLS
+		case "tls": err = cl.connectTCP(NET_TLS); return NET_TLS
 		default: err = cl.connectUDP(); return NET_UDP // default type
 		}
 	}(proto)
@@ -1402,7 +1402,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 	return
 }
 
-func (cl *stunclient) connectTCP() error {
+func (cl *stunclient) connectTCP(connType byte) error {
 
 	if cl.tcpConn != nil {
 		return nil
@@ -1413,16 +1413,25 @@ func (cl *stunclient) connectTCP() error {
 		return fmt.Errorf("resolve TCP: %s", err)
 	}
 	// save TCP connection
-	conn, err := net.DialTCP("tcp", nil, raddr)
+	tcpConn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
 		return fmt.Errorf("dial TCP: %s", err)
 	}
 	// set TCP socket options
-	conn.SetNoDelay(true)
-	conn.SetKeepAlive(true)
-	conn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
-	conn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
-	cl.tcpConn = conn
+	tcpConn.SetNoDelay(true)
+	tcpConn.SetKeepAlive(true)
+	tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+	tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+
+	if connType == NET_TLS {
+		tlsConn := tls.Client(tcpConn, &tls.Config{ InsecureSkipVerify: true })
+		if err := tlsConn.Handshake(); err != nil {
+			return fmt.Errorf("TLS handshake: %s", err)
+		}
+		cl.tcpConn = tlsConn
+	} else {
+		cl.tcpConn = tcpConn
+	}
 
 	go cl.receiveTCP()
 
@@ -1451,24 +1460,6 @@ func (cl *stunclient) connectUDP() error {
 	cl.udpConn = conn
 
 	go cl.receiveUDP()
-
-	return nil
-}
-
-func (cl *stunclient) connectTLS() error {
-
-	if cl.tcpConn != nil {
-		return nil
-	}
-
-	// start dialing TURNS server with TLS handshake
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", cl.remote.Host, cl.remote.Port), &tls.Config{})
-	if err != nil {
-		return fmt.Errorf("dial TLS: %s", err)
-	}
-	cl.tcpConn = conn
-
-	go cl.receiveTCP()
 
 	return nil
 }
