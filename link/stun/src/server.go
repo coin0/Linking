@@ -25,7 +25,6 @@ func init() {
 	conf.Args.RelayedIP = flag.String("rip", "127.0.0.1", "IP address bound for relayed candidates")
 	conf.Args.RelayedInf = flag.String("rif", "", "first ipv4 of specified interface will be used for relay")
 	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
-	conf.Args.SecPort = flag.String("sport", "443", "security port for TURNS")
 	conf.Args.Cert = flag.String("cert", "server.crt", "public certificate for sec transport")
 	conf.Args.Key = flag.String("key", "server.key", "private key for sec transport")
 	conf.Args.Realm = flag.String("realm", "link", "used for long-term cred for TURN")
@@ -63,7 +62,7 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	// start listening
-	wg.Add(3)
+	wg.Add(2)
 
 	go func(wg *sync.WaitGroup) {
 		defer wg.Done()
@@ -76,13 +75,6 @@ func main() {
 		defer wg.Done()
 		for {
 			stun.ListenTCP(*conf.Args.ServiceIP, *conf.Args.Port)
-		}
-	}(wg)
-
-	go func (wg *sync.WaitGroup) {
-		defer wg.Done()
-		for {
-			stun.ListenTLS(*conf.Args.ServiceIP, *conf.Args.SecPort)
 		}
 	}(wg)
 

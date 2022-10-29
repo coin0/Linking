@@ -90,34 +90,14 @@ func (pool *tcpPool) del(addr *address) {
 
 // -------------------------------------------------------------------------------------------------
 
-func ListenTLS(ip, port string) error {
+func ListenTCP(ip, port string) error {
 
 	// load cert and key files from filesystem
 	cert, err := tls.LoadX509KeyPair(*conf.Args.Cert, *conf.Args.Key)
 	if err != nil {
 		return fmt.Errorf("wrong cert or key file path")
 	}
-	config := &tls.Config{ Certificates: []tls.Certificate{cert} }
-
-	l, err := tls.Listen("tcp", ip + ":" + port, config)
-	if err != nil {
-		return fmt.Errorf("listen TLS: %s", err)
-	}
-	defer l.Close()
-
-	for {
-		tlsConn, err := l.Accept()
-		if err != nil {
-			return fmt.Errorf("TCP-TLS accept: %s", err)
-		}
-
-		handleTCP(tlsConn, NET_TLS)
-	}
-
-	return nil
-}
-
-func ListenTCP(ip, port string) error {
+	tlsconf := &tls.Config{ Certificates: []tls.Certificate{cert} }
 
 	tcp, err := net.ResolveTCPAddr("tcp4", ip + ":" + port)
 	if err != nil {
@@ -135,13 +115,7 @@ func ListenTCP(ip, port string) error {
 			return fmt.Errorf("TCP accept: %s", err)
 		}
 
-		// set TCP socket options
-		tcpConn.SetNoDelay(true)
-		tcpConn.SetKeepAlive(true)
-		tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
-		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
-
-		handleTCP(tcpConn, NET_TCP)
+		handleTCP(tcpConn, tlsconf)
 	}
 }
 
@@ -195,12 +169,18 @@ func ListenUDP(ip, port string) error {
 	}
 }
 
-func handleTCP(conn net.Conn, connType byte) {
+func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 
 	go func() {
 
+		// set TCP socket options
+		tcpConn.SetNoDelay(true)
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+
 		rest := make([]byte, 0)
-		rm, _ := net.ResolveTCPAddr(conn.RemoteAddr().Network(), conn.RemoteAddr().String())
+		rm, _ := net.ResolveTCPAddr(tcpConn.RemoteAddr().Network(), tcpConn.RemoteAddr().String())
 
 		// must convert to IPv4, sometimes it's in the form of IPv6
 		var ip net.IP
@@ -208,6 +188,8 @@ func handleTCP(conn net.Conn, connType byte) {
 			ip = rm.IP // IPv6
 		}
 
+		// demux plain TCP and TLS over TCP by parsing ClientHello
+		connType, conn := demuxTCP(tcpConn, tlsConf)
 		addr := &address{
 			IP:    ip,
 			Port:  rm.Port,
@@ -245,6 +227,17 @@ func handleTCP(conn net.Conn, connType byte) {
 			}
 		}
 	}()
+}
+
+func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (connType byte, conn net.Conn) {
+
+	// probe TLS ClientHello
+	tlsConn := tls.Server(tcpConn, tlsConf)
+	if err := tlsConn.Handshake(); err != nil {
+		return NET_TCP, tcpConn
+	}
+
+	return NET_TLS, tlsConn
 }
 
 func decodeTCP(req []byte) ([]byte, []byte, error) {

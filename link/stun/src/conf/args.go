@@ -23,7 +23,6 @@ type argument struct {
 	RelayedIP   *string
 	RelayedInf  *string
 	Port     *string
-	SecPort  *string
 	Cert     *string
 	Key      *string
 	Realm    *string
