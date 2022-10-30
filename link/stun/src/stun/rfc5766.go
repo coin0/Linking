@@ -609,8 +609,10 @@ func (this *message) checkAllocation(r *address) (int, error) {
 		return STUN_ERR_BAD_REQUEST, err
 	} else if tran[0] != PROTO_NUM_UDP && tran[0] != PROTO_NUM_TCP {
 		return STUN_ERR_UNSUPPORTED_PROTO, fmt.Errorf("invalid REQUESTED-TRANSPORT value")
-	} else if tran[0] == PROTO_NUM_TCP && r.Proto == NET_UDP {
-		return STUN_ERR_BAD_REQUEST, fmt.Errorf("REQUESTED-TRANSPORT mismatch")
+	} else if tran[0] == PROTO_NUM_TCP {
+		if r.Proto == NET_UDP {
+			return STUN_ERR_BAD_REQUEST, fmt.Errorf("REQUESTED-TRANSPORT mismatch")
+		}
 	}
 
 	return 0, nil
@@ -682,6 +684,46 @@ func (this *message) addAttrRequestedTran(trans byte) int {
 
 	this.attributes = append(this.attributes, attr)
 	return 8 // 4 + 4
+}
+
+func (this *message) addAttrEvenPort(reserve bool) int {
+
+	rbit := byte(0x80)
+	if !reserve {
+		rbit = byte(0x00)
+	}
+
+	attr := &attribute{
+		typevalue:  STUN_ATTR_EVENT_PORT,
+		typename:   parseAttributeType(STUN_ATTR_EVENT_PORT),
+		length:     1,
+	}
+
+	// paddings
+	total := attr.length
+	if total % 4 != 0 {
+		total += 4 - total % 4
+	}
+	attr.value = make([]byte, total)
+
+	// set reservation bit
+	attr.value[0] = rbit
+
+	this.attributes = append(this.attributes, attr)
+	return 4 + len(attr.value)
+}
+
+func (this *message) addAttrDontFragment() int {
+
+	attr := &attribute{
+		typevalue:  STUN_ATTR_EVENT_PORT,
+		typename:   parseAttributeType(STUN_ATTR_EVENT_PORT),
+		length:     0,
+		value:      []byte{}, // no value part
+	}
+
+	this.attributes = append(this.attributes, attr)
+	return 4
 }
 
 func (this *message) getAttrRequestedTran() ([]byte, error) {
@@ -784,6 +826,33 @@ func (this *message) getAttrXorPeerAddresses() ([]*address, error) {
 	}
 
 	return results, nil
+}
+
+func (this *message) getAttrEvenPort() (bool, error) {
+
+	attr := this.findAttr(STUN_ATTR_EVENT_PORT)
+	if attr == nil {
+		return false, fmt.Errorf("not found")
+	}
+
+	if attr.length != 1 || len(attr.value) != 4 {
+		return false, fmt.Errorf("invalide EVEN-PORT attribute")
+	}
+
+	if attr.value[0] == 0x80 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (this *message) getAttrDontFragment() error {
+
+	attr := this.findAttr(STUN_ATTR_DONT_FRAGMENT)
+	if attr == nil {
+		return fmt.Errorf("not found")
+	}
+
+	return nil
 }
 
 func (this *message) isDataIndication() bool {
