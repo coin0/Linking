@@ -579,21 +579,21 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	return this.replyAllocationRequest(alloc)
 }
 
-func newInitAllocationRequest() (*message, error) {
+func newInitAllocationRequest(proto byte) (*message, error) {
 
 	msg := &message{}
 	msg.method = STUN_MSG_METHOD_ALLOCATE
 	msg.encoding = STUN_MSG_REQUEST
 	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
 	msg.transactionID = append(msg.transactionID, genTransactionID()...)
-	msg.length += msg.addAttrRequestedTran()
+	msg.length += msg.addAttrRequestedTran(proto)
 
 	return msg, nil
 }
 
-func newSubAllocationRequest(username, realm, nonce string) (*message, error) {
+func newSubAllocationRequest(proto byte, username, realm, nonce string) (*message, error) {
 
-	msg, _ := newInitAllocationRequest()
+	msg, _ := newInitAllocationRequest(proto)
 	msg.length += msg.addAttrUsername(username)
 	msg.length += msg.addAttrRealm(realm)
 	msg.length += msg.addAttrNonce(nonce)
@@ -669,13 +669,13 @@ func (this *message) addAttrLifetime(t uint32) int {
 	return 8 // fixed 4 bytes
 }
 
-func (this *message) addAttrRequestedTran() int {
+func (this *message) addAttrRequestedTran(trans byte) int {
 
 	attr := &attribute{}
 	attr.typevalue = STUN_ATTR_REQUESTED_TRAN
 	attr.typename = parseAttributeType(attr.typevalue)
 	attr.length = 4
-	attr.value = []byte{PROTO_NUM_UDP, 0, 0, 0}
+	attr.value = []byte{trans, 0, 0, 0}
 
 	this.attributes = append(this.attributes, attr)
 	return 8 // 4 + 4
@@ -1621,10 +1621,16 @@ func (cl *stunclient) Bye() error {
 	return nil
 }
 
-func (cl *stunclient) Alloc() error {
+func (cl *stunclient) Alloc(relaytype string) error {
+
+	// specify relay type
+	transport := byte(PROTO_NUM_UDP)
+	if relaytype == "tcp" {
+		transport = PROTO_NUM_TCP
+	}
 
 	// create initial alloc request
-	req, _ := newInitAllocationRequest()
+	req, _ := newInitAllocationRequest(transport)
 	if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 	Info("client > server(%s): %s", cl.remote, req.print4Log())
 	buf, err := cl.transmitMessage(req)
@@ -1660,7 +1666,7 @@ func (cl *stunclient) Alloc() error {
 	}
 
 	// subsequent request
-	req, _ = newSubAllocationRequest(cl.Username, cl.realm, cl.nonce)
+	req, _ = newSubAllocationRequest(transport, cl.Username, cl.realm, cl.nonce)
 	if cl.Lifetime != 0 {
 		req.length += req.addAttrLifetime(cl.Lifetime)
 	}

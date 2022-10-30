@@ -67,7 +67,7 @@ func usage() {
 	}())
 	fmt.Printf("n                        : create a new client instance\n")
 	fmt.Printf("b                        : send a bind request\n")
-	fmt.Printf("a <lifetime>             : start allocation by given arguments\n")
+	fmt.Printf("a <tcp/udp> <lifetime>   : start allocation by given arguments\n")
 	fmt.Printf("r <lifetime>             : send a refresh request\n")
 	fmt.Printf("p <ip1> <ip2> <ip...>    : create permission request\n")
 	fmt.Printf("c <ip> <port>            : bind a channel\n")
@@ -251,15 +251,15 @@ func exec(input string) (err error) {
 	case 'b':
 		err = client.Bind()
 	case 'a':
-		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
+		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		client.Username = *conf.ClientArgs.Username
 		client.Password = *conf.ClientArgs.Password
-		t, _ := strconv.Atoi(get(input, 1))
+		t, _ := strconv.Atoi(get(input, 2))
 		client.Lifetime = uint32(t)
 		client.NoFragment = true
 		client.EvenPort = true
 		client.ReservToken = make([]byte, 8)
-		err = client.Alloc()
+		err = client.Alloc(get(input, 1))
 	case 'r':
 		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
 		t, _ := strconv.Atoi(get(input, 1))

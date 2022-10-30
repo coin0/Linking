@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	PROTO_NUM_TCP     = 6   // RFC6062: TCP relay
 	PROTO_NUM_UDP     = 17
 )
 
