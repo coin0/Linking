@@ -612,6 +612,12 @@ func (this *message) checkAllocation(r *address) (int, error) {
 	} else if tran[0] == PROTO_NUM_TCP {
 		if r.Proto == NET_UDP {
 			return STUN_ERR_BAD_REQUEST, fmt.Errorf("REQUESTED-TRANSPORT mismatch")
+		} else if _, err = this.getAttrEvenPort(); err == nil {
+			return STUN_ERR_BAD_REQUEST, fmt.Errorf("EVEN-PORT not supported")
+		} else if err = this.getAttrDontFragment(); err == nil {
+			return STUN_ERR_BAD_REQUEST, fmt.Errorf("DONT-FRAGMENT not supported")
+		} else if _, err = this.getAttrReservToken(); err == nil {
+			return STUN_ERR_BAD_REQUEST, fmt.Errorf("RESERVATION-TOKEN not supported")
 		}
 	}
 
