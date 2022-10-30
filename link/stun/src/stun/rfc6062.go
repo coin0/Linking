@@ -15,3 +15,13 @@ const (
 	STUN_ERR_CONN_TIMEOUT        = 447
 	STUN_ERR_CONN_FAILURE        = 447
 )
+
+// -------------------------------------------------------------------------------------------------
+
+func (svr *relayserver) sendToPeerTCP(addr *address, data []byte) {
+
+}
+
+func (svr *relayserver) recvFromPeerTCP(ech chan error) {
+
+}

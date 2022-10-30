@@ -84,7 +84,7 @@ type turnpool struct {
 
 type relayserver struct {
 	// relay server
-	conn        *net.UDPConn
+	conn        net.Conn
 
 	// sync on exit
 	wg          *sync.WaitGroup
@@ -102,6 +102,9 @@ type relayserver struct {
 type allocation struct {
 	// hash key to find the alloc struct in pool
 	key         string
+
+	// transport type
+	transport   byte
 
 	// keep alive time
 	lifetime    uint32
@@ -539,15 +542,14 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	}
 
 	// 3. check allocation
-	if code, err = this.checkAllocation(r); err != nil {
+	if alloc.transport, code, err = this.checkAllocation(r); err != nil {
 		return this.newErrorMessage(code, "invalid alloc req: " + err.Error()), nil
 	}
 
 	// 4. TODO handle DONT-FRAGMENT attribute
 
 	// 5. TODO get reservation token
-	alloc.token, err = this.getAttrReservToken()
-	if err == nil {
+	if alloc.token, err = this.getAttrReservToken(); err == nil {
 		return this.newErrorMessage(STUN_ERR_INSUFFICIENT_CAP, "RESERVATION-TOKEN is not supported"), nil
 	}
 
@@ -601,27 +603,28 @@ func newSubAllocationRequest(proto byte, username, realm, nonce string) (*messag
 	return msg, nil // this is not done yet, need optional attrs + integrity attr
 }
 
-func (this *message) checkAllocation(r *address) (int, error) {
+func (this *message) checkAllocation(r *address) (byte, int, error) {
 
 	// check req tran attr
 	// according to https://datatracker.ietf.org/doc/html/rfc6062#section-5.1
-	if tran, err := this.getAttrRequestedTran(); err != nil {
-		return STUN_ERR_BAD_REQUEST, err
+	tran, err := this.getAttrRequestedTran();
+	if err != nil {
+		return 0, STUN_ERR_BAD_REQUEST, err
 	} else if tran[0] != PROTO_NUM_UDP && tran[0] != PROTO_NUM_TCP {
-		return STUN_ERR_UNSUPPORTED_PROTO, fmt.Errorf("invalid REQUESTED-TRANSPORT value")
+		return 0, STUN_ERR_UNSUPPORTED_PROTO, fmt.Errorf("invalid REQUESTED-TRANSPORT value")
 	} else if tran[0] == PROTO_NUM_TCP {
 		if r.Proto == NET_UDP {
-			return STUN_ERR_BAD_REQUEST, fmt.Errorf("REQUESTED-TRANSPORT mismatch")
+			return 0, STUN_ERR_BAD_REQUEST, fmt.Errorf("REQUESTED-TRANSPORT mismatch")
 		} else if _, err = this.getAttrEvenPort(); err == nil {
-			return STUN_ERR_BAD_REQUEST, fmt.Errorf("EVEN-PORT not supported")
+			return 0, STUN_ERR_BAD_REQUEST, fmt.Errorf("EVEN-PORT not supported")
 		} else if err = this.getAttrDontFragment(); err == nil {
-			return STUN_ERR_BAD_REQUEST, fmt.Errorf("DONT-FRAGMENT not supported")
+			return 0, STUN_ERR_BAD_REQUEST, fmt.Errorf("DONT-FRAGMENT not supported")
 		} else if _, err = this.getAttrReservToken(); err == nil {
-			return STUN_ERR_BAD_REQUEST, fmt.Errorf("RESERVATION-TOKEN not supported")
+			return 0, STUN_ERR_BAD_REQUEST, fmt.Errorf("RESERVATION-TOKEN not supported")
 		}
 	}
 
-	return 0, nil
+	return tran[0], 0, nil
 }
 
 func (this *message) addAttrChanNumber(channel uint16) int {
@@ -1133,14 +1136,15 @@ func (svr *relayserver) bind() (p int, _ error) {
 			continue
 		}
 
-		svr.conn, err = net.ListenUDP("udp", udp)
+		conn, err := net.ListenUDP("udp", udp)
 		if err != nil {
 			continue
 		}
 
-		svr.conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
-		svr.conn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
+		conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
+		conn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
 
+		svr.conn = conn
 		svr.status = TURN_RELAY_BINDED
 		return p, nil
 	}
@@ -1164,22 +1168,7 @@ func (svr *relayserver) spawn() error {
 
 		// spawn listening thread
 		svr.wg.Add(1)
-		go func(svr *relayserver, ech chan error) {
-			defer svr.wg.Done()
-			defer svr.conn.Close()
-
-			for {
-				buf := make([]byte, DEFAULT_MTU)
-				nr, rm, err := svr.conn.ReadFromUDP(buf)
-				if err != nil {
-					ech <- err
-					break
-				}
-
-				// send to client
-				svr.sendToClient(rm, buf[:nr])
-			}
-		}(svr, ech)
+		go svr.recvFromPeerUDP(ech)
 
 		// poll fds
 		ticker := time.NewTicker(time.Second * 60)
@@ -1223,28 +1212,50 @@ func (svr *relayserver) kill() {
 
 func (svr *relayserver) sendToPeer(addr *address, data []byte) {
 
+	go svr.sendToPeerUDP(addr, data)
+}
+
+func (svr *relayserver) sendToPeerUDP(addr *address, data []byte) {
+
+	if svr.conn == nil {
+		return
+	}
+
 	r := &net.UDPAddr{
 		IP:   addr.IP,
 		Port: addr.Port,
 	}
 
-	go func(r *net.UDPAddr, data []byte) {
+	if svr.status != TURN_RELAY_LISTENING {
+		// fmt.Errorf("send error: server status: %d", svr.status)
+		return
+	}
 
-		if svr.conn == nil {
-			return
-		}
+	conn, _ := svr.conn.(*net.UDPConn)
+	_, err := conn.WriteToUDP(data, r)
+	if err != nil {
+		// fmt.Errorf("send error: %s", err)
+		return
+	}
+}
 
-		if svr.status != TURN_RELAY_LISTENING {
-			// fmt.Errorf("send error: server status: %d", svr.status)
-			return
-		}
+func (svr *relayserver) recvFromPeerUDP(ech chan error) {
 
-		_, err := svr.conn.WriteToUDP(data, r)
+	defer svr.wg.Done()
+	defer svr.conn.Close()
+
+	for {
+		buf := make([]byte, DEFAULT_MTU)
+		conn, _ := svr.conn.(*net.UDPConn)
+		nr, rm, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			// fmt.Errorf("send error: %s", err)
-			return
+			ech <- err
+			break
 		}
-	}(r, data)
+
+		// send to client
+		svr.sendToClient(rm, buf[:nr])
+	}
 }
 
 func (svr *relayserver) sendToClient(peer *net.UDPAddr, data []byte) {
