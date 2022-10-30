@@ -539,7 +539,7 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	}
 
 	// 3. check allocation
-	if code, err = this.checkAllocation(); err != nil {
+	if code, err = this.checkAllocation(r); err != nil {
 		return this.newErrorMessage(code, "invalid alloc req: " + err.Error()), nil
 	}
 
@@ -601,13 +601,16 @@ func newSubAllocationRequest(proto byte, username, realm, nonce string) (*messag
 	return msg, nil // this is not done yet, need optional attrs + integrity attr
 }
 
-func (this *message) checkAllocation() (int, error) {
+func (this *message) checkAllocation(r *address) (int, error) {
 
 	// check req tran attr
+	// according to https://datatracker.ietf.org/doc/html/rfc6062#section-5.1
 	if tran, err := this.getAttrRequestedTran(); err != nil {
 		return STUN_ERR_BAD_REQUEST, err
-	} else if tran[0] != PROTO_NUM_UDP {
+	} else if tran[0] != PROTO_NUM_UDP && tran[0] != PROTO_NUM_TCP {
 		return STUN_ERR_UNSUPPORTED_PROTO, fmt.Errorf("invalid REQUESTED-TRANSPORT value")
+	} else if tran[0] == PROTO_NUM_TCP && r.Proto == NET_UDP {
+		return STUN_ERR_BAD_REQUEST, fmt.Errorf("REQUESTED-TRANSPORT mismatch")
 	}
 
 	return 0, nil
