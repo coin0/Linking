@@ -466,7 +466,7 @@ func sendTo(addr *address, data []byte) error {
 	switch addr.Proto {
 	case NET_UDP:
 		return sendUDP(addr, data)
-	case NET_TCP:
+	case NET_TCP, NET_TLS:
 		// channel data over tcp must roundup to 32 bits
 		roundup := 0
 		if len(data) % 4 != 0 {
