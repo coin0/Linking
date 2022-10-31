@@ -21,6 +21,7 @@ var (
 	srflxProto   = ""
 	srflxIP      = ""
 	srflxPort    = 0
+	transport    = ""
 	client, _    = stun.NewClient("", 0, "")
 )
 
@@ -59,7 +60,7 @@ func usage() {
 	fmt.Println("******************************************")
 	fmt.Println("Simple STUN client")
 	fmt.Printf("  Ready to connect to server address %s\n", serverAddr)
-	if relayedIP != "" { fmt.Printf("  Relayed address udp://%s:%d\n", relayedIP, relayedPort) }
+	if relayedIP != "" { fmt.Printf("  Relayed address %s://%s:%d\n", transport, relayedIP, relayedPort) }
 	if srflxIP != ""   { fmt.Printf("  Reflexive address %s://%s:%d\n", srflxProto, srflxIP, srflxPort) }
 	fmt. Printf("  Debug mode: %s\n\n", func() string {
 		if *conf.ClientArgs.Debug { return "ON" }
@@ -259,7 +260,11 @@ func exec(input string) (err error) {
 		client.NoFragment = true
 		client.EvenPort = true
 		client.ReservToken = make([]byte, 8)
-		err = client.Alloc(get(input, 1))
+		transport = "udp"
+		if get(input, 1) == "tcp" {
+			transport = "tcp"
+		}
+		err = client.Alloc(transport)
 	case 'r':
 		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
 		t, _ := strconv.Atoi(get(input, 1))

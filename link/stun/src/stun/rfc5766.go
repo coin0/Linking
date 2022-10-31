@@ -28,7 +28,7 @@ const (
 
 const (
 	TURN_RELAY_NEW                 = 0
-	TURN_RELAY_BINDED              = 1
+	TURN_RELAY_BOUND               = 1
 	TURN_RELAY_LISTENING           = 2
 	TURN_RELAY_CLOSED              = 3
 )
@@ -85,6 +85,9 @@ type turnpool struct {
 type relayserver struct {
 	// relay server
 	conn        net.Conn
+
+	// connection pool for TCP relays
+	tcpConns    *tcpPool
 
 	// sync on exit
 	wg          *sync.WaitGroup
@@ -1114,6 +1117,10 @@ func newRelay(alloc *allocation) *relayserver {
 		svrLck:   &sync.Mutex{},
 		allocRef: alloc,
 		wg:       &sync.WaitGroup{},
+		tcpConns: &tcpPool{
+			conns: map[string]net.Conn{},
+			lck: &sync.Mutex{},
+		},
 	}
 }
 
@@ -1128,24 +1135,26 @@ func (svr *relayserver) bind() (p int, _ error) {
 	// try 40 times, NEVER ASK WHY 40
 	for i := 0; i < 40; i++ {
 
-		p = allocPool.nextPort()
+		p = allocPool.nextPort(svr.allocRef.transport)
 		addr := fmt.Sprintf("%s:%d", *conf.Args.RelayedIP, p)
 
-		udp, err := net.ResolveUDPAddr("udp", addr)
-		if err != nil {
-			continue
+		// start listening on relayed address
+		switch svr.allocRef.transport {
+		case PROTO_NUM_TCP:
+			if tcp, err := svr.listenTCP(addr); err != nil {
+				continue
+			} else {
+				svr.conn = tcp
+			}
+		case PROTO_NUM_UDP:
+			if udp, err := svr.listenUDP(addr); err != nil {
+				continue
+			} else {
+				svr.conn = udp
+			}
 		}
 
-		conn, err := net.ListenUDP("udp", udp)
-		if err != nil {
-			continue
-		}
-
-		conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
-		conn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
-
-		svr.conn = conn
-		svr.status = TURN_RELAY_BINDED
+		svr.status = TURN_RELAY_BOUND
 		return p, nil
 	}
 	return -1, fmt.Errorf("could not bind local address")
@@ -1156,7 +1165,7 @@ func (svr *relayserver) spawn() error {
 
 	svr.svrLck.Lock()
 	defer svr.svrLck.Unlock()
-	if svr.status != TURN_RELAY_BINDED {
+	if svr.status != TURN_RELAY_BOUND {
 		return fmt.Errorf("could not listen relay address")
 	}
 	svr.status = TURN_RELAY_LISTENING
@@ -1168,7 +1177,10 @@ func (svr *relayserver) spawn() error {
 
 		// spawn listening thread
 		svr.wg.Add(1)
-		go svr.recvFromPeerUDP(ech)
+		switch svr.allocRef.transport {
+		case PROTO_NUM_TCP: go svr.recvFromPeerTCP(ech)
+		case PROTO_NUM_UDP: go svr.recvFromPeerUDP(ech)
+		}
 
 		// poll fds
 		ticker := time.NewTicker(time.Second * 60)
@@ -1196,6 +1208,7 @@ func (svr *relayserver) spawn() error {
 
 		// wait for listening thread
 		svr.wg.Wait()
+		svr.clear()
 		svr.status = TURN_RELAY_CLOSED
 	}(svr)
 
@@ -1212,7 +1225,10 @@ func (svr *relayserver) kill() {
 
 func (svr *relayserver) sendToPeer(addr *address, data []byte) {
 
-	go svr.sendToPeerUDP(addr, data)
+	switch svr.allocRef.transport {
+	case PROTO_NUM_TCP: go svr.sendToPeerTCP(addr, data)
+	case PROTO_NUM_UDP: go svr.sendToPeerUDP(addr, data)
+	}
 }
 
 func (svr *relayserver) sendToPeerUDP(addr *address, data []byte) {
@@ -1254,11 +1270,29 @@ func (svr *relayserver) recvFromPeerUDP(ech chan error) {
 		}
 
 		// send to client
-		svr.sendToClient(rm, buf[:nr])
+		svr.sendToClientUDP(rm, buf[:nr])
 	}
 }
 
-func (svr *relayserver) sendToClient(peer *net.UDPAddr, data []byte) {
+func (svr *relayserver) listenUDP(addr string) (*net.UDPConn, error) {
+
+	udp, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("resolve UDP: %s", err)
+	}
+
+	conn, err := net.ListenUDP("udp", udp)
+	if err != nil {
+		return nil, fmt.Errorf("listen UDP: %s", err)
+	}
+
+	conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
+	conn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
+
+	return conn, nil
+}
+
+func (svr *relayserver) sendToClientUDP(peer *net.UDPAddr, data []byte) {
 
 	go func(svr *relayserver, peer *net.UDPAddr, data []byte) {
 
@@ -1324,10 +1358,12 @@ func (pool *turnpool) find(key string) (alloc *allocation, ok bool) {
 	return
 }
 
-func (pool *turnpool) nextPort() (p int) {
+func (pool *turnpool) nextPort(transport byte) (p int) {
 
 	pool.portLck.Lock()
 	defer pool.portLck.Unlock()
+
+	// TODO differ TCP and UDP relay
 
 	p = pool.availPort
 	if pool.availPort == TURN_SRV_MAX_PORT {

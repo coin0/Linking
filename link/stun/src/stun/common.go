@@ -50,8 +50,9 @@ type tcpPool struct {
 // a dummy connection to hook tlsConn.Read() in order to retain the
 // first STUN packet for TURN TCP
 type dummyConn struct {
-	tcpConn *net.TCPConn
-	readBuf []byte
+	tcpConn     *net.TCPConn
+	tcpListener *net.TCPListener
+	readBuf     []byte
 }
 
 var (
@@ -138,7 +139,15 @@ func (c *dummyConn) RemoteAddr() net.Addr {
 
 func (c *dummyConn) SetDeadline(t time.Time) error {
 
-	return c.tcpConn.SetDeadline(t)
+	if c.tcpListener != nil {
+		return c.tcpListener.SetDeadline(t)
+	}
+
+	if c.tcpConn != nil {
+		return c.tcpConn.SetDeadline(t)
+	}
+
+	return nil
 }
 
 func (c *dummyConn) SetReadDeadline(t time.Time) error {
@@ -462,6 +471,7 @@ func sendTCP(r *address, data []byte) error {
 	return nil
 }
 
+// for TCP relay, this function is only to send data over control connection
 func sendTo(addr *address, data []byte) error {
 
 	switch addr.Proto {
