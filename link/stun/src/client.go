@@ -71,6 +71,7 @@ func usage() {
 	fmt.Printf("a <tcp/udp> <lifetime>   : start allocation by given arguments\n")
 	fmt.Printf("r <lifetime>             : send a refresh request\n")
 	fmt.Printf("p <ip1> <ip2> <ip...>    : create permission request\n")
+	fmt.Printf("e <ip> <port>            : connect to a remote TCP address\n")
 	fmt.Printf("c <ip> <port>            : bind a channel\n")
 	fmt.Printf("x <iP> <port> <message>  : send a single line text message to peers\n")
 	fmt.Printf("l                        : start listening messages from other peers\n")
@@ -271,6 +272,10 @@ func exec(input string) (err error) {
 		err = client.Refresh(uint32(t))
 	case 'p':
 		err = client.CreatePerm(getAll(input))
+	case 'e':
+		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
+		p, _ := strconv.Atoi(get(input, 2))
+		err = client.Connect(get(input, 1), p)
 	case 'c':
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))

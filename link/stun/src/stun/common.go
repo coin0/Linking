@@ -512,7 +512,7 @@ func (this *message) process(r *address) (*message, error) {
 		case STUN_MSG_METHOD_CHANNEL_BIND: return this.doChanBindRequest(alloc)
 		}
 
-		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "not support"), nil
+		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "not supported"), nil
 
 	} else if this.isIndication() {
 		switch this.method {
@@ -536,6 +536,9 @@ func parseMessageType(method, encoding uint16) (m string, e string) {
 	case STUN_MSG_METHOD_DATA: m = "data"
 	case STUN_MSG_METHOD_CREATE_PERM: m = "create_permission"
 	case STUN_MSG_METHOD_CHANNEL_BIND: m = "channel_bind"
+	case STUN_MSG_METHOD_CONNECT: m = "connect"
+	case STUN_MSG_METHOD_CONN_BIND: m = "connect_bind"
+	case STUN_MSG_METHOD_CONN_ATTEMPT: m = "connection_attempt"
 	default: m = "unknown"
 	}
 
@@ -577,6 +580,7 @@ func parseAttributeType(db uint16) string {
 	case STUN_ATTR_USERHASH: return "USERHASH"
 	case STUN_ATTR_PASSWORD_ALGORITHMS: return "PASSWORD-ALGORITHMS"
 	case STUN_ATTR_ALTERNATE_DOMAIN: return "ALTERNATE-DOMAIN"
+	case STUN_ATTR_CONNECTION_ID: return "CONNECTION-ID"
 	}
 	return "RESERVED"
 }

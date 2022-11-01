@@ -4,6 +4,8 @@ import (
 	"net"
 	"fmt"
 	"time"
+	. "util/log"
+	"crypto/md5"
 )
 
 const (
@@ -21,6 +23,32 @@ const (
 	STUN_ERR_CONN_TIMEOUT        = 447
 	STUN_ERR_CONN_FAILURE        = 447
 )
+
+// -------------------------------------------------------------------------------------------------
+
+func newConnectRequest(username, password, realm, nonce string, peer *address) (*message, error) {
+
+	msg := &message{
+		method:        STUN_MSG_METHOD_CONN_BIND,
+		encoding:      STUN_MSG_REQUEST,
+		transactionID: genTransactionID(),
+	}
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+
+	// add credential attributes
+	msg.length += msg.addAttrUsername(username)
+	msg.length += msg.addAttrRealm(realm)
+	msg.length += msg.addAttrNonce(nonce)
+
+	// add xor peer address
+	msg.length += msg.addAttrXorPeerAddr(peer)
+
+	// make sure MESSAGE-INTEGRITY is the last attribute
+	key := md5.Sum([]byte(username + ":" + realm + ":" + password))
+	msg.length += msg.addAttrMsgIntegrity(string(key[0:16]))
+
+	return msg, nil
+}
 
 // -------------------------------------------------------------------------------------------------
 
@@ -117,4 +145,59 @@ func (svr *relayserver) clearRelayTCP() {
 
 	// TODO close all connections with the client
 	// TODO close all connections associated with the relay
+}
+
+// -------------------------------------------------------------------------------------------------
+
+func (cl *stunclient) Connect(ip string, port int) error {
+
+	// peer should be a remote TCP endpoint
+	peer := &address{
+		IP: net.ParseIP(ip).To4(),
+		Port: port,
+		Proto: NET_TCP,
+	}
+
+	for retry := 2; retry > 0; {
+
+		// rfc-6062: create a new TCP connect request over control connection
+		req, _ := newConnectRequest(cl.Username, cl.Password, cl.realm, cl.nonce, peer)
+		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+		Info("client > server(%s): %s", cl.remote, req.print4Log())
+
+		// send request to server
+		buf, err := cl.transmitMessage(req)
+		if err != nil {
+			return fmt.Errorf("connect request: %s", err)
+		}
+
+		// get response from server
+		resp, err := getMessage(buf)
+		if err != nil {
+			return fmt.Errorf("connect response: %s", err)
+		}
+		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+		Info("server(%s) > client: %s", cl.remote, resp.print4Log())
+
+		// handle error code
+		code, errStr, err := resp.getAttrErrorCode()
+		if err == nil {
+			switch code {
+			case STUN_ERR_STALE_NONCE:
+				nonce, err := resp.getAttrNonce()
+				if err != nil {
+					return fmt.Errorf("get NONCE: %s", err)
+				}
+				cl.nonce = nonce // refresh nonce
+
+				retry--
+				continue
+			default:
+				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+			}
+		}
+		break
+	}
+
+	return nil
 }
