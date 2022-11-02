@@ -262,7 +262,7 @@ func exec(input string) (err error) {
 		client.EvenPort = true
 		client.ReservToken = make([]byte, 8)
 		transport = "udp"
-		if get(input, 1) == "tcp" {
+		if get(input, 1) == "tcp" || get(input, 1) == "t" {
 			transport = "tcp"
 		}
 		err = client.Alloc(transport)
