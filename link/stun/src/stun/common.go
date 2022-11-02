@@ -510,6 +510,7 @@ func (this *message) process(r *address) (*message, error) {
 		case STUN_MSG_METHOD_REFRESH:      return this.doRefreshRequest(alloc)
 		case STUN_MSG_METHOD_CREATE_PERM:  return this.doCreatePermRequest(alloc)
 		case STUN_MSG_METHOD_CHANNEL_BIND: return this.doChanBindRequest(alloc)
+		case STUN_MSG_METHOD_CONNECT:      return this.doConnectRequest(alloc)
 		}
 
 		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "not supported"), nil

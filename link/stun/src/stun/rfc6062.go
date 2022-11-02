@@ -9,6 +9,8 @@ import (
 	"golang.org/x/sys/unix"
 	"context"
 	"syscall"
+	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -22,12 +24,104 @@ const (
 )
 
 const (
-	STUN_ERR_CONN_ALREADY_EXIST  = 446
-	STUN_ERR_CONN_TIMEOUT        = 447
-	STUN_ERR_CONN_FAILURE        = 447
+	STUN_ERR_CONN_ALREADY_EXIST   = 446
+	STUN_ERR_CONN_TIMEOUT_OR_FAIL = 447
 )
 
+const (
+	TCP_RELAY_MAX_CONN_TIMEOUT   = 30 // seconds
+)
+
+type connInfo struct {
+	// connection ID
+	id        uint32
+
+	// peer address
+	remote    *address
+
+	// creation time of outgoing / incoming TCP connection on relayed address
+	creation  time.Time
+
+	// copy of TCP connection
+	conn      net.Conn
+}
+
+type tcpRelayInfo struct {
+	conns  map[uint32]*connInfo
+
+	// cursor pointing to current available connection ID
+	cursor uint32
+
+	lck    *sync.Mutex
+}
+
 // -------------------------------------------------------------------------------------------------
+
+func (pool *tcpRelayInfo) get(id uint32) *connInfo {
+
+	pool.lck.Lock()
+	defer pool.lck.Unlock()
+
+	if val, ok := pool.conns[id]; !ok {
+		return nil
+	} else {
+		return val
+	}
+}
+
+func (pool *tcpRelayInfo) set(id uint32, info *connInfo) {
+
+	pool.lck.Lock()
+	defer pool.lck.Unlock()
+
+	pool.conns[id] = info
+}
+
+func (pool *tcpRelayInfo) del(id uint32) {
+
+	pool.lck.Lock()
+	defer pool.lck.Unlock()
+
+	delete(pool.conns, id)
+}
+
+func (pool *tcpRelayInfo) nextID() uint32 {
+
+	return atomic.AddUint32(&pool.cursor, 1) - 1
+}
+
+// -------------------------------------------------------------------------------------------------
+
+func (this *message) doConnectRequest(alloc *allocation) (*message, error) {
+
+	msg := &message{
+		method:        this.method,
+		encoding:      STUN_MSG_SUCCESS,
+		transactionID: this.transactionID,
+	}
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+
+	// get peer address
+	addr, err := this.getAttrXorPeerAddress()
+	addr.Proto = NET_TCP
+	if err != nil {
+		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "invalid CONNECT request: " + err.Error()), nil
+	}
+
+	// check existence of peer address
+	if alloc.server.tcpConns.get(addr) != nil {
+		return this.newErrorMessage(STUN_ERR_CONN_ALREADY_EXIST, "connection already exists"), nil
+	}
+
+	// initiate an outgoing TCP connection to peer
+	// https://datatracker.ietf.org/doc/html/rfc6062#section-5.2
+	err = alloc.server.connectToPeerTCP(addr)
+	if err != nil {
+		return this.newErrorMessage(STUN_ERR_CONN_TIMEOUT_OR_FAIL, "connection failed: " + err.Error()), nil
+	}
+
+	return msg, nil
+}
 
 func newConnectRequest(username, password, realm, nonce string, peer *address) (*message, error) {
 
@@ -55,11 +149,99 @@ func newConnectRequest(username, password, realm, nonce string, peer *address) (
 
 // -------------------------------------------------------------------------------------------------
 
+func (svr *relayserver) genConnID() (id uint32, err error) {
+
+	const maxRetry = 40
+	for i := 0; i < maxRetry; i++ {
+		id = svr.tcpConnInfo.nextID()
+		if info := svr.tcpConnInfo.get(id); info != nil {
+			continue
+		}
+		if i == maxRetry - 1 {
+			return 0, fmt.Errorf("no available CONNECTION-ID")
+		}
+	}
+
+	return
+}
+
 func (svr *relayserver) sendToPeerTCP(addr *address, data []byte) {
 
 	// TODO
 }
 
+// intiate an outgoing connection to the remote peer
+func (svr *relayserver) connectToPeerTCP(peer *address) error {
+
+	relay := &svr.allocRef.relay
+	laddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", relay.IP, relay.Port))
+	if err != nil {
+		return fmt.Errorf("invalid relayed address: %s", err)
+	}
+
+	// an outgoing TCP connection must keep aligned with relayed transport address
+	d := net.Dialer{
+		Control: func(net, loc string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+			})
+		},
+		LocalAddr: laddr,
+		Timeout: time.Second * TCP_RELAY_MAX_CONN_TIMEOUT,
+	}
+
+	// start dialing the peer
+	conn, err := d.Dial("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
+	if err != nil {
+		return fmt.Errorf("connect peer: %s", err)
+	}
+
+	// set r/w buffer size
+	tcpConn, _ := conn.(*net.TCPConn)
+	tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+	tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+
+	// spawn a listening routine over peer data connection
+	go func(conn net.Conn, svr *relayserver) {
+		// save this peer data connection and generate a new CONNECTION-ID
+		defer svr.tcpConns.del(peer)
+		defer conn.Close()
+		svr.tcpConns.set(peer, conn)
+		id, err := svr.genConnID()
+		if err != nil {
+			Error("[%s] no available ID when connecting peer %s", keygen(&svr.allocRef.source), peer)
+		}
+		relay := &connInfo{
+			id:       id,
+			remote:   peer,
+			creation: time.Now(),
+			conn:     conn,
+		}
+		defer svr.tcpConnInfo.del(relay.id)
+		svr.tcpConnInfo.set(relay.id, relay)
+
+		// TODO wait here for CONNECTION-BIND to establish client data connection
+		// otherwise we do not read any content in TCP buffer
+
+		for {
+			conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
+
+			buf := make([]byte, DEFAULT_MTU)
+			_, err := conn.Read(buf)
+			if err != nil {
+				// TODO relayed connection disconnects, close the connection to client as well
+			}
+
+			// TODO send to client
+			//svr.sendToClientTCP()
+		}
+	}(conn, svr)
+
+	return nil
+}
+
+// wait for incoming connections from remote peers
 func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 
 	dummy, _ := svr.conn.(*dummyConn)
@@ -74,7 +256,6 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 			break
 		}
 
-		// TODO received a new TCP connection from peer
 		// TODO check permissions for this peer
 
 		// start a incoming TCP connection and
@@ -95,6 +276,24 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 			defer svr.tcpConns.del(addr)
 			defer conn.Close()
 			svr.tcpConns.set(addr, conn)
+
+			// save metadata for peer data connection
+			id, err := svr.genConnID()
+			if err != nil {
+				Error("[%s] no available ID when receiving new connection from peer %s",
+					keygen(&svr.allocRef.source), addr)
+			}
+			relay := &connInfo{
+				id:       id,
+				remote:   addr,
+				creation: time.Now(),
+				conn:     conn,
+			}
+			defer svr.tcpConnInfo.del(relay.id)
+			svr.tcpConnInfo.set(relay.id, relay)
+
+			// TODO send CONNECTION-ATTEMPT indication and wait for
+			// client to bind this connection by CONNECTION-BIND
 
 			for {
 				conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))

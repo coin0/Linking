@@ -88,6 +88,7 @@ type relayserver struct {
 
 	// connection pool for TCP relays
 	tcpConns    *tcpPool
+	tcpConnInfo *tcpRelayInfo
 
 	// sync on exit
 	wg          *sync.WaitGroup
@@ -1121,6 +1122,10 @@ func newRelay(alloc *allocation) *relayserver {
 			conns: map[string]net.Conn{},
 			lck: &sync.Mutex{},
 		},
+		tcpConnInfo: &tcpRelayInfo{
+			conns: map[uint32]*connInfo{},
+			lck: &sync.Mutex{},
+		},
 	}
 }
 
@@ -1183,7 +1188,7 @@ func (svr *relayserver) spawn() error {
 		}
 
 		// poll fds
-		ticker := time.NewTicker(time.Second * 60)
+		ticker := time.NewTicker(time.Second * 60) // TODO reduce interval for TCP conn check
 		timer := time.NewTimer(time.Second * time.Duration(svr.allocRef.lifetime))
 		for quit := false; !quit; {
 			select {
@@ -1194,6 +1199,7 @@ func (svr *relayserver) spawn() error {
 					svr.allocRef.nonce = genNonceWithCookie(STUN_NONCE_LENGTH)
 					svr.allocRef.nonceExp = now.Add(time.Second * time.Duration(TURN_NONCE_EXPIRY))
 				}
+				// TODO TCP relay needs check expiry of CONNECT request
 			case <-timer.C:
 				if seconds, err := svr.allocRef.getRestLife(); err == nil {
 					timer = time.NewTimer(time.Second * time.Duration(seconds))
