@@ -6,6 +6,9 @@ import (
 	"time"
 	. "util/log"
 	"crypto/md5"
+	"golang.org/x/sys/unix"
+	"context"
+	"syscall"
 )
 
 const (
@@ -111,18 +114,25 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 
 func (svr *relayserver) listenTCP(addr string) (*dummyConn, error) {
 
-	tcp, err := net.ResolveTCPAddr("tcp4", addr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve TCP: %s", err)
+	// TCP relayed address must set port and addr reuse since outgoing connection also require
+	// the same local address endpoint
+	cfg := net.ListenConfig{
+		Control: func(net, loc string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+			})
+		},
 	}
 
-	l, err := net.ListenTCP("tcp", tcp)
+	l, err := cfg.Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen TCP: %s", err)
 	}
+	tcp, _ := l.(*net.TCPListener)
 
 	dummy := &dummyConn{
-		tcpListener: l,
+		tcpListener: tcp,
 	}
 
 	return dummy, nil
