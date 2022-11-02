@@ -32,7 +32,7 @@ const (
 func newConnectRequest(username, password, realm, nonce string, peer *address) (*message, error) {
 
 	msg := &message{
-		method:        STUN_MSG_METHOD_CONN_BIND,
+		method:        STUN_MSG_METHOD_CONNECT,
 		encoding:      STUN_MSG_REQUEST,
 		transactionID: genTransactionID(),
 	}
