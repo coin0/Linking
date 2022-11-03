@@ -10,6 +10,7 @@ import (
 	"context"
 	"syscall"
 	"sync"
+	"encoding/binary"
 )
 
 const (
@@ -92,14 +93,12 @@ func (pool *tcpRelayInfo) genConnID() (uint32, error) {
 	pool.lck.Lock()
 	defer pool.lck.Unlock()
 
-	// save original position
-	prev := pool.cursor
-
 	// search available IDs
-	for ;pool.cursor != prev; pool.cursor++ {
+	for prev := pool.cursor - 1; pool.cursor != prev; pool.cursor++ {
 		if _, ok := pool.conns[pool.cursor]; ok {
 			continue
 		} else {
+			pool.cursor++
 			return pool.cursor, nil
 		}
 	}
@@ -120,10 +119,10 @@ func (this *message) doConnectRequest(alloc *allocation) (*message, error) {
 
 	// get peer address
 	addr, err := this.getAttrXorPeerAddress()
-	addr.Proto = NET_TCP
 	if err != nil {
 		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "invalid CONNECT request: " + err.Error()), nil
 	}
+	addr.Proto = NET_TCP
 
 	// check existence of peer address
 	if alloc.server.tcpConns.get(addr) != nil {
@@ -132,15 +131,18 @@ func (this *message) doConnectRequest(alloc *allocation) (*message, error) {
 
 	// initiate an outgoing TCP connection to peer
 	// https://datatracker.ietf.org/doc/html/rfc6062#section-5.2
-	err = alloc.server.connectToPeerTCP(addr)
+	id, err := alloc.server.connectToPeerTCP(addr)
 	if err != nil {
 		return this.newErrorMessage(STUN_ERR_CONN_TIMEOUT_OR_FAIL, "connection failed: " + err.Error()), nil
 	}
 
-	// TODO return connection ID
+	// add connection ID attribute
+	msg.length += msg.addAttrConnID(id)
 
-	// TODO add MESSAGE-INTEGRITY
-
+	// add integrity attribute
+	if err := msg.addIntegrity(alloc.username); err != nil {
+		return this.newErrorMessage(STUN_ERR_WRONG_CRED, err.Error()), nil
+	}
 	return msg, nil
 }
 
@@ -168,6 +170,34 @@ func newConnectRequest(username, password, realm, nonce string, peer *address) (
 	return msg, nil
 }
 
+func (this *message) addAttrConnID(id uint32) int {
+
+	attr := &attribute{
+		typevalue:  STUN_ATTR_CONNECTION_ID,
+		typename:   parseAttributeType(STUN_ATTR_CONNECTION_ID),
+		length:     4,
+		value:      []byte{0, 0, 0, 0},
+	}
+	binary.BigEndian.PutUint32(attr.value[0:], id)
+
+	this.attributes = append(this.attributes, attr)
+	return 8 // 4 + 4
+}
+
+func (this *message) getAttrConnID() (uint32, error) {
+
+	attr := this.findAttr(STUN_ATTR_CONNECTION_ID)
+	if attr == nil {
+		return 0, fmt.Errorf("not found")
+	}
+
+	if len(attr.value) != 4 {
+		return 0, fmt.Errorf("invalid CONNECTION-ID attribute")
+	}
+
+	return binary.BigEndian.Uint32(attr.value[0:]), nil
+}
+
 // -------------------------------------------------------------------------------------------------
 
 func (svr *relayserver) sendToPeerTCP(addr *address, data []byte) {
@@ -176,12 +206,12 @@ func (svr *relayserver) sendToPeerTCP(addr *address, data []byte) {
 }
 
 // intiate an outgoing connection to the remote peer
-func (svr *relayserver) connectToPeerTCP(peer *address) error {
+func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 
 	relay := &svr.allocRef.relay
 	laddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", relay.IP, relay.Port))
 	if err != nil {
-		return fmt.Errorf("invalid relayed address: %s", err)
+		return 0, fmt.Errorf("invalid relayed address: %s", err)
 	}
 
 	// an outgoing TCP connection must keep aligned with relayed transport address
@@ -199,7 +229,7 @@ func (svr *relayserver) connectToPeerTCP(peer *address) error {
 	// start dialing the peer
 	conn, err := d.Dial("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
 	if err != nil {
-		return fmt.Errorf("connect peer: %s", err)
+		return 0, fmt.Errorf("connect peer: %s", err)
 	}
 
 	// set r/w buffer size
@@ -207,16 +237,17 @@ func (svr *relayserver) connectToPeerTCP(peer *address) error {
 	tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
 	tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
 
+	id, err := dataConns.genConnID()
+	if err != nil {
+		return 0, err
+	}
+
 	// spawn a listening routine over peer data connection
-	go func(conn net.Conn, svr *relayserver) {
+	go func(conn net.Conn, svr *relayserver, id uint32) {
 		// save this peer data connection and generate a new CONNECTION-ID
 		defer svr.tcpConns.del(peer)
 		defer conn.Close()
 		svr.tcpConns.set(peer, conn)
-		id, err := dataConns.genConnID()
-		if err != nil {
-			Error("[%s] no available ID when connecting peer %s", keygen(&svr.allocRef.source), peer)
-		}
 		relay := &connInfo{
 			id:       id,
 			remote:   peer,
@@ -241,9 +272,9 @@ func (svr *relayserver) connectToPeerTCP(peer *address) error {
 			// TODO send to client
 			//svr.sendToClientTCP()
 		}
-	}(conn, svr)
+	}(conn, svr, id)
 
-	return nil
+	return id, nil
 }
 
 // wait for incoming connections from remote peers
@@ -263,8 +294,19 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 
 		// TODO check permissions for this peer
 
+		// set TCP buffer size
+		tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+
+		// generate a new connection ID for peer data connection
+		id, err := dataConns.genConnID()
+		if err != nil {
+			Error("[%s] no available ID when receiving new connection from peer %s",
+				keygen(&svr.allocRef.source), tcpConn.RemoteAddr())
+		}
+
 		// start a incoming TCP connection and
-		go func(conn *net.TCPConn, svr *relayserver) {
+		go func(conn *net.TCPConn, svr *relayserver, id uint32) {
 			rm, _ := net.ResolveTCPAddr(conn.RemoteAddr().Network(), conn.RemoteAddr().String())
 
 			// must convert to IPv4, sometimes it's in the form of IPv6
@@ -283,11 +325,6 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 			svr.tcpConns.set(addr, conn)
 
 			// save metadata for peer data connection
-			id, err := dataConns.genConnID()
-			if err != nil {
-				Error("[%s] no available ID when receiving new connection from peer %s",
-					keygen(&svr.allocRef.source), addr)
-			}
 			relay := &connInfo{
 				id:       id,
 				remote:   addr,
@@ -312,7 +349,7 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 				// TODO send to client
 				//svr.sendToClientTCP()
 			}
-		}(tcpConn, svr)
+		}(tcpConn, svr, id)
 	}
 }
 
@@ -407,7 +444,7 @@ func (cl *stunclient) Connect(ip string, port int) error {
 				retry--
 				continue
 			default:
-				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+				return fmt.Errorf("server returned error: %d: %s", code, errStr)
 			}
 		}
 		break

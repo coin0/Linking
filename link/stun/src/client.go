@@ -340,8 +340,13 @@ func main() {
 
 	for {
 		// wait for user input
-		relayedIP, relayedPort, _ = client.RelayedAddr()
-		srflxProto, srflxIP, srflxPort, _ = client.SrflxAddr()
+		if client != nil {
+			relayedIP, relayedPort, _ = client.RelayedAddr()
+			srflxProto, srflxIP, srflxPort, _ = client.SrflxAddr()
+		} else {
+			relayedIP, relayedPort = "", 0
+			srflxProto, srflxIP, srflxPort = 0, "", 0
+		}
 
 		usage()
 		reader := bufio.NewReader(os.Stdin)

@@ -1830,7 +1830,7 @@ func (cl *stunclient) Alloc(relaytype string) error {
 	code, errStr, err = resp.getAttrErrorCode()
 	if err == nil {
 		// err == nil indicates server returns error
-		return fmt.Errorf("server returned error %d:%s", code, errStr)
+		return fmt.Errorf("server returned error %d: %s", code, errStr)
 	}
 
 	// save srflx IP address
@@ -1893,7 +1893,7 @@ func (cl *stunclient) Refresh(lifetime uint32) error {
 				retry--
 				continue
 			default:
-				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+				return fmt.Errorf("server returned error: %d: %s", code, errStr)
 			}
 		}
 		break
@@ -1951,7 +1951,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 				retry--
 				continue
 			default:
-				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+				return fmt.Errorf("server returned error: %d: %s", code, errStr)
 			}
 		}
 		break
@@ -2149,7 +2149,7 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 				retry--
 				continue
 			default:
-				return fmt.Errorf("server returned error: %d:%s", code, errStr)
+				return fmt.Errorf("server returned error: %d: %s", code, errStr)
 			}
 		}
 		break
