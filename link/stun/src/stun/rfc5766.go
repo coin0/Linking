@@ -88,7 +88,6 @@ type relayserver struct {
 
 	// connection pool for TCP relays
 	tcpConns    *tcpPool
-	tcpConnInfo *tcpRelayInfo
 
 	// sync on exit
 	wg          *sync.WaitGroup
@@ -1120,10 +1119,6 @@ func newRelay(alloc *allocation) *relayserver {
 		wg:       &sync.WaitGroup{},
 		tcpConns: &tcpPool{
 			conns: map[string]net.Conn{},
-			lck: &sync.Mutex{},
-		},
-		tcpConnInfo: &tcpRelayInfo{
-			conns: map[uint32]*connInfo{},
 			lck: &sync.Mutex{},
 		},
 	}

@@ -61,6 +61,10 @@ var (
 		conns: map[string]net.Conn{},
 		lck:   &sync.Mutex{},
 	}
+	dataConns = &tcpRelayInfo{
+		conns: map[uint32]*connInfo{},
+		lck:   &sync.Mutex{},
+	}
 )
 
 // -------------------------------------------------------------------------------------------------
