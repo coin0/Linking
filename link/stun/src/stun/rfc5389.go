@@ -302,6 +302,16 @@ func (this *message) isResponse() bool {
 	return this.encoding == STUN_MSG_SUCCESS || this.encoding == STUN_MSG_ERROR
 }
 
+func (this *message) isErrorResponse() bool {
+
+	return this.encoding == STUN_MSG_ERROR
+}
+
+func (this *message) isSuccessResponse() bool {
+
+	return this.encoding == STUN_MSG_SUCCESS
+}
+
 func (this *message) isBindingRequest() bool {
 
 	return (this.method | this.encoding) == (STUN_MSG_METHOD_BINDING | STUN_MSG_REQUEST)

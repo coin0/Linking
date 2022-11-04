@@ -71,7 +71,8 @@ func usage() {
 	fmt.Printf("a <tcp/udp> <lifetime>   : start allocation by given arguments\n")
 	fmt.Printf("r <lifetime>             : send a refresh request\n")
 	fmt.Printf("p <ip1> <ip2> <ip...>    : create permission request\n")
-	fmt.Printf("e <ip> <port>            : connect to a remote TCP address\n")
+	fmt.Printf("e <ip> <port>            : create a new peer data connection\n")
+	fmt.Printf("f <conn-id>              : create a new client data connection\n")
 	fmt.Printf("c <ip> <port>            : bind a channel\n")
 	fmt.Printf("x <iP> <port> <message>  : send a single line text message to peers\n")
 	fmt.Printf("l                        : start listening messages from other peers\n")
@@ -276,6 +277,10 @@ func exec(input string) (err error) {
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
 		err = client.Connect(get(input, 1), p)
+	case 'f':
+		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
+		id, _ := strconv.Atoi(get(input, 1))
+		err = client.BindConn(uint32(id))
 	case 'c':
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
@@ -345,7 +350,7 @@ func main() {
 			srflxProto, srflxIP, srflxPort, _ = client.SrflxAddr()
 		} else {
 			relayedIP, relayedPort = "", 0
-			srflxProto, srflxIP, srflxPort = 0, "", 0
+			srflxProto, srflxIP, srflxPort = "", "", 0
 		}
 
 		usage()

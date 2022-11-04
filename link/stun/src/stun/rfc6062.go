@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"sync"
 	"encoding/binary"
+	"util/dbg"
+	"crypto/tls"
 )
 
 const (
@@ -170,6 +172,30 @@ func newConnectRequest(username, password, realm, nonce string, peer *address) (
 	return msg, nil
 }
 
+func newConnBindRequest(username, password, realm, nonce string, id uint32) (*message, error) {
+
+	msg := &message{
+		method:        STUN_MSG_METHOD_CONN_BIND,
+		encoding:      STUN_MSG_REQUEST,
+		transactionID: genTransactionID(),
+	}
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+
+	// add credential attributes
+	msg.length += msg.addAttrUsername(username)
+	msg.length += msg.addAttrRealm(realm)
+	msg.length += msg.addAttrNonce(nonce)
+
+	// add connection ID attribute
+	msg.length += msg.addAttrConnID(id)
+
+	// make sure MESSAGE-INTEGRITY is the last attribute
+	key := md5.Sum([]byte(username + ":" + realm + ":" + password))
+	msg.length += msg.addAttrMsgIntegrity(string(key[0:16]))
+
+	return msg, nil
+}
+
 func (this *message) addAttrConnID(id uint32) int {
 
 	attr := &attribute{
@@ -259,6 +285,7 @@ func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 
 		// TODO wait here for CONNECTION-BIND to establish client data connection
 		// otherwise we do not read any content in TCP buffer
+		// select case ticker, connBound chan bool
 
 		for {
 			conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
@@ -336,6 +363,7 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 
 			// TODO send CONNECTION-ATTEMPT indication and wait for
 			// client to bind this connection by CONNECTION-BIND
+			// select case ticker, connBound chan bool
 
 			for {
 				conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
@@ -446,9 +474,150 @@ func (cl *stunclient) Connect(ip string, port int) error {
 			default:
 				return fmt.Errorf("server returned error: %d: %s", code, errStr)
 			}
+		} else {
+			id, err := resp.getAttrConnID()
+			if err != nil {
+				return fmt.Errorf("success response: %s", err)
+			}
+			cl.dataConnMap.set(id, &connInfo{ id: id, remote: peer })
 		}
 		break
 	}
 
 	return nil
+}
+
+func (cl *stunclient) BindConn(id uint32) error {
+
+	for retry := 2; retry > 0; {
+
+		// spawn a new TCP connection to server
+		if err := cl.connectTCP2(id, cl.remote.Proto); err != nil {
+			return fmt.Errorf("connect TCP: %s", err)
+		}
+
+		req, _ := newConnBindRequest(cl.Username, cl.Password, cl.realm, cl.nonce, id)
+		if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+		Info("client > server(%s): %s", cl.remote, req.print4Log())
+
+		// send request to server and wait for response
+		var info *connInfo
+		// we should start receive routine whether request succeeds or not
+		defer func() { go cl.receiveTCP2(info) }()
+		if info = cl.dataConnMap.get(id); info == nil {
+			return fmt.Errorf("could not find this connection")
+		}
+		if err := transmitTCP(info.clientConn, nil, nil, req.buffer()); err != nil {
+			return fmt.Errorf("transmit error: %s", err)
+		}
+
+		// get response from server
+		rbuf := make([]byte, DEFAULT_MTU)
+		if _, err := info.clientConn.Read(rbuf); err != nil {
+			return fmt.Errorf("read from TCP: %s", err)
+		}
+		var resp *message
+		if buf, _, err := decodeTCP(rbuf); err != nil {
+			return fmt.Errorf("decode message: %s", err)
+		} else {
+			if resp, err = getMessage(buf); err != nil {
+				return fmt.Errorf("connection-bind response: %s", err)
+			}
+		}
+		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+		Info("server(%s) > client: %s", cl.remote, resp.print4Log())
+		if resp.isErrorResponse() {
+			return fmt.Errorf("connection-bind responds with error")
+		}
+
+
+		// handle error code
+		code, errStr, err := resp.getAttrErrorCode()
+		if err == nil {
+			switch code {
+			case STUN_ERR_STALE_NONCE:
+				nonce, err := resp.getAttrNonce()
+				if err != nil {
+					return fmt.Errorf("get NONCE: %s", err)
+				}
+				cl.nonce = nonce // refresh nonce
+
+				retry--
+				continue
+			default:
+				return fmt.Errorf("server returned error: %d: %s", code, errStr)
+			}
+		}
+		break
+	}
+
+	return nil
+}
+
+func (cl *stunclient) connectTCP2(connID uint32, connType byte) error {
+
+	// get context of client data connection and set TCP connection once dial() succeeds
+	info := cl.dataConnMap.get(connID)
+	if info == nil {
+		return fmt.Errorf("could not get connection")
+	}
+
+	raddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", cl.remote.IP, cl.remote.Port))
+	if err != nil {
+		return fmt.Errorf("resolve TCP: %s", err)
+	}
+
+	tcpConn, err := net.DialTCP("tcp", nil, raddr)
+	if err != nil {
+		return fmt.Errorf("dial TCP: %s", err)
+	}
+
+	tcpConn.SetNoDelay(true)
+	tcpConn.SetKeepAlive(true)
+	tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+	tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+
+	// save client data connection in the map and correlate its connection ID
+	if connType == NET_TLS {
+		tlsConn := tls.Client(tcpConn, &tls.Config{ InsecureSkipVerify: true })
+		if err := tlsConn.Handshake(); err != nil {
+			return fmt.Errorf("TLS handshake: %s", err)
+		}
+		cl.dataConns.set(info.remote, tlsConn)
+		info.clientConn = tlsConn
+	} else {
+		cl.dataConns.set(info.remote, tcpConn)
+		info.clientConn = tcpConn
+	}
+
+	return nil
+}
+
+func (cl *stunclient) receiveTCP2(info *connInfo) {
+
+	if info == nil || info.clientConn == nil {
+		return
+	}
+
+	defer cl.dataConns.del(info.remote)
+	defer info.clientConn.Close()
+	defer cl.dataConnMap.del(info.id)
+
+	for {
+		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
+		nr, err := info.clientConn.Read(buf)
+		if err != nil {
+			break
+		}
+
+		// receive peer data as-is
+		if cl.DebugOn {
+			str := fmt.Sprintf("========== server(%s) > client ==========\n", cl.remote)
+			str  = fmt.Sprintf("client data connection, length=%d bytes\n", nr)
+			str  = fmt.Sprintf("  %s", dbg.DumpMem(buf[:nr], 0))
+			fmt.Println(str)
+		}
+	}
+
+	fmt.Println("connection closed, id: ", info.id)
 }

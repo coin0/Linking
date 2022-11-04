@@ -192,6 +192,10 @@ type stunclient struct {
 	tcpConn     net.Conn
 	tcpBuffer   []byte
 
+	// client data connection pool
+	dataConns   *tcpPool           // search conn by peer addr as a key
+	dataConnMap *tcpRelayInfo      // search conn info by connID as a key
+
 	// message listener
 	dataSub     *subclient
 	responseSub *subclient
@@ -1500,6 +1504,14 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 		},
 		channels: map[string]uint16{},
 		tcpBuffer: []byte{},
+		dataConns: &tcpPool{
+			conns: map[string]net.Conn{},
+			lck:   &sync.Mutex{},
+		},
+		dataConnMap: &tcpRelayInfo{
+			conns: map[uint32]*connInfo{},
+			lck:   &sync.Mutex{},
+		},
 		dataSub: &subclient{
 			transactionID: []byte{ 0 },
 			listener: make(chan []byte),
@@ -1538,7 +1550,7 @@ func (cl *stunclient) connectTCP(connType byte) error {
 	if err != nil {
 		return fmt.Errorf("resolve TCP: %s", err)
 	}
-	// save TCP connection
+
 	tcpConn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
 		return fmt.Errorf("dial TCP: %s", err)
