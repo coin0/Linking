@@ -109,17 +109,16 @@ func (pool *tcpRelayInfo) genConnID() (uint32, error) {
 	pool.lck.Lock()
 	defer pool.lck.Unlock()
 
-	// search available IDs
-	for prev := pool.cursor - 1; pool.cursor != prev; pool.cursor++ {
-		if _, ok := pool.conns[pool.cursor]; ok {
-			continue
-		} else {
-			pool.cursor++
+	prev := pool.cursor
+	for {
+		pool.cursor++
+		if _, inUse := pool.conns[pool.cursor]; !inUse {
 			return pool.cursor, nil
 		}
+		if pool.cursor == prev {
+			return 0, fmt.Errorf("no available CONNECTION-ID")
+		}
 	}
-
-	return 0, fmt.Errorf("no available CONNECTION-ID")
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -266,6 +265,23 @@ func newConnBindRequest(username, password, realm, nonce string, id uint32) (*me
 	return msg, nil
 }
 
+func newConnAttemptIndication(id uint32, peer *address) (*message, error) {
+
+	msg := &message{
+		method:        STUN_MSG_METHOD_CONN_ATTEMPT,
+		encoding:      STUN_MSG_INDICATION,
+		transactionID: genTransactionID(),
+	}
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+
+	// a conn-attempt indication contains connection ID and peer address
+	// https://datatracker.ietf.org/doc/html/rfc6062#section-4.4
+	msg.length += msg.addAttrConnID(id)
+	msg.length += msg.addAttrXorPeerAddr(peer)
+
+	return msg, nil
+}
+
 func (this *message) addAttrConnID(id uint32) int {
 
 	attr := &attribute{
@@ -292,6 +308,11 @@ func (this *message) getAttrConnID() (uint32, error) {
 	}
 
 	return binary.BigEndian.Uint32(attr.value[0:]), nil
+}
+
+func (this *message) isConnAttemptIndication() bool {
+
+	return (this.method | this.encoding) == (STUN_MSG_METHOD_CONN_ATTEMPT | STUN_MSG_INDICATION)
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -355,36 +376,51 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 			break
 		}
 
-		// check permissions for this peer
-		rm, _ := net.ResolveTCPAddr(tcpConn.RemoteAddr().Network(), tcpConn.RemoteAddr().String())
-		var ip net.IP
-		if ip = rm.IP.To4(); ip == nil {
-			ip = rm.IP // IPv6
-		}
-		if err := svr.allocRef.checkPerms(&address{ IP: ip }); err != nil {
-			Error("[%s] peer %s is not on perm list", svr.allocRef.key, rm.IP)
-			tcpConn.Close()
-			continue
-		}
+		go func(tcpConn *net.TCPConn) {
+			rm, _ := net.ResolveTCPAddr(tcpConn.RemoteAddr().Network(), tcpConn.RemoteAddr().String())
+			var ip net.IP
+			if ip = rm.IP.To4(); ip == nil {
+				ip = rm.IP // IPv6
+			}
 
-		// set TCP buffer size
-		tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
-		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
-		tcpConn.SetKeepAlive(true)
+			peer := &address{
+				IP:    ip,
+				Port:  rm.Port,
+				Proto: NET_TCP,
+			}
 
-		// generate a new connection ID for peer data connection
-		id, err := dataConns.genConnID()
-		if err != nil {
-			Error("[%s] no available ID when receiving new connection from peer %s",
-				svr.allocRef.key, tcpConn.RemoteAddr())
-			tcpConn.Close()
-			continue
-		}
+			// check permissions for this peer
+			if err := svr.allocRef.checkPerms(peer); err != nil {
+				Error("[%s] peer %s is not on perm list", svr.allocRef.key, rm.IP)
+				tcpConn.Close()
+				return
+			}
 
-		// start a incoming TCP connection and
-		go svr.sendToClientTCP(tcpConn, id)
+			// set TCP buffer size
+			tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
+			tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+			tcpConn.SetKeepAlive(true)
 
-		// TODO send CONNECTION-ATTEMPT indication to client
+			// generate a new connection ID for peer data connection
+			id, err := dataConns.genConnID()
+			if err != nil {
+				Error("[%s] no available ID when receiving new connection from peer %s",
+					svr.allocRef.key, peer)
+				tcpConn.Close()
+				return
+			}
+
+			// will wait for conn-bind request and then listen on peer data connection
+			go svr.sendToClientTCP(tcpConn, id)
+
+			// send CONNECTION-ATTEMPT indication to client
+			msg, _ := newConnAttemptIndication(id, peer)
+			if err := sendTo(&svr.allocRef.source, msg.buffer()); err != nil {
+				Error("[%s] send conn-attempt: %s, peer=%s", svr.allocRef.key, err, peer)
+				tcpConn.Close()
+				return
+			}
+		}(tcpConn)
 	}
 }
 
@@ -587,6 +623,7 @@ func (cl *stunclient) BindConn(id uint32) error {
 
 		// spawn a new TCP connection to server
 		if err := cl.connectTCP2(id, cl.remote.Proto); err != nil {
+			cl.dataConnMap.del(id)
 			return fmt.Errorf("connect TCP: %s", err)
 		}
 
@@ -623,7 +660,6 @@ func (cl *stunclient) BindConn(id uint32) error {
 		if resp.isErrorResponse() {
 			return fmt.Errorf("connection-bind responds with error")
 		}
-
 
 		// handle error code
 		code, errStr, err := resp.getAttrErrorCode()
@@ -713,5 +749,18 @@ func (cl *stunclient) receiveTCP2(info *connInfo) {
 		}
 	}
 
-	fmt.Println("connection closed, id: ", info.id)
+	fmt.Printf("connection closed, id=%d\n", info.id)
+}
+
+func (cl *stunclient) onReceiveConnAttempt(msg *message) error {
+
+	if id, err := msg.getAttrConnID(); err != nil {
+		return fmt.Errorf("missing connection id in CONNECTION-ATTEMPT")
+	} else if peer, err := msg.getAttrXorPeerAddress(); err != nil {
+		return fmt.Errorf("missing peer address in CONNECTION-ATTEMPT")
+	} else {
+		cl.dataConnMap.set(id, &connInfo{ id: id, remote: peer })
+	}
+
+	return nil
 }

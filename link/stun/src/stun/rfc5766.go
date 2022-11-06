@@ -1972,6 +1972,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 	return nil
 }
 
+// TODO send data to tcp relay
 func (cl *stunclient) Send(ip string, port int, data []byte) error {
 
 	// check if any channel created for the peer
@@ -2066,8 +2067,8 @@ func (cl *stunclient) receiveLoop(cb func([]byte, error)int) error {
 			st = cb(nil, fmt.Errorf("empty data"))
 		}
 
-		// only handle STUN DATA indications and CHANNEL messages, return nothing if we receive any other
-		// STUN messages, user is supposed to make sure this method won't be called during any stun request
+		// handle STUN DATA indications and CHANNEL messages and invoke callback functions
+		// when it is a CONN-ATTEMPT save connection ID to cl.dataConns
 		switch buf[0] & MSG_TYPE_MASK {
 		case MSG_TYPE_STUN_MSG:
 			msg, err := getMessage(buf)
@@ -2075,8 +2076,14 @@ func (cl *stunclient) receiveLoop(cb func([]byte, error)int) error {
 				st = cb(nil, fmt.Errorf("invalid stun message: %s", err))
 			}
 			if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+			if msg.isConnAttemptIndication() {
+				if err = cl.onReceiveConnAttempt(msg); err != nil {
+					st = cb(nil, err)
+				}
+				break
+			}
 			if b := msg.isDataIndication(); !b {
-				st = cb(nil, fmt.Errorf("data indication or channel data only"))
+				st = cb(nil, fmt.Errorf("unsupported indication or channel data"))
 			}
 			data, err := msg.getAttrData()
 			if err != nil {
