@@ -40,15 +40,22 @@ type connInfo struct {
 
 	// peer address
 	remote    *address
+	// copy of TCP peer data connection maintained by relayserver
+	peerConn  net.Conn
+
+	// client control connection source address, a copy of allocation.source
+	client    *address
+
+	// copy of TCP client data connection maintained by global tcp pool
+	dataConn  net.Conn
+	// copy of source address for data connection
+	dataAddr  *address
 
 	// creation time of outgoing / incoming TCP connection on relayed address
 	creation  time.Time
 
-	// copy of TCP peer data connection maintained by relayserver
-	peerConn    net.Conn
-
-	// copy of TCP client data connection maintained by client tcp pool
-	clientConn  net.Conn
+	// notify relay server to start listening on peer data connection
+	connBound chan bool
 }
 
 type tcpRelayInfo struct {
@@ -59,6 +66,13 @@ type tcpRelayInfo struct {
 
 	lck    *sync.Mutex
 }
+
+var (
+	dataConns = &tcpRelayInfo{
+		conns: map[uint32]*connInfo{},
+		lck:   &sync.Mutex{},
+	}
+)
 
 // -------------------------------------------------------------------------------------------------
 
@@ -172,6 +186,62 @@ func newConnectRequest(username, password, realm, nonce string, peer *address) (
 	return msg, nil
 }
 
+func (this *message) doConnBindRequest(addr *address) (*message, error) {
+
+	// https://datatracker.ietf.org/doc/html/rfc6062#section-5.4
+	// validate protocol type of client data connection
+	if addr.Proto == NET_UDP {
+		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "protocol mismatch"), nil
+	}
+
+	var info *connInfo
+	var dataConn net.Conn
+	if id, err := this.getAttrConnID(); err != nil {
+		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "missing CONNECTION-ID"), nil
+	} else if info = dataConns.get(id); info == nil {
+		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "peer data connection not found"), nil
+	} else if addr.Equal(info.client) {
+		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "control connection is not allowed"), nil
+	} else if dataConn = tcpConns.get(addr); dataConn == nil {
+		return this.newErrorMessage(STUN_ERR_SERVER_ERROR, "client data connection lost"), nil
+	}
+
+	// find the allocation of control connection and check credential
+	alloc, m := this.generalRequestCheck(info.client)
+	if alloc == nil {
+		return m, nil
+	}
+
+	msg := &message{
+		method:    this.method,
+		encoding:  STUN_MSG_SUCCESS,
+		transactionID: this.transactionID,
+	}
+	msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+
+	// add integrity attribute
+	if err := msg.addIntegrity(alloc.username); err != nil {
+		return this.newErrorMessage(STUN_ERR_WRONG_CRED, err.Error()), nil
+	}
+
+	// respond connection-bind success to the client on behalf of handleTCP() and start listening
+	// on this client raw data connection since handleTCP() only handles stun messages
+	dataConn.Write(msg.buffer())
+
+	// save source address and connection before notifying sendToPeerTCP() routine
+	Info("[%s] bind new client data conn=%s with id=%d", alloc.key, addr, info.id)
+	info.dataAddr, info.dataConn = addr, dataConn
+
+	// notify relay server to start listening on the peer
+	info.connBound <- true
+
+	// this function will block to listen on the client data connection when it returns
+	// the connection must be gone
+	alloc.server.sendToPeerTCP(info)
+
+	return nil, fmt.Errorf("client data connection closed")
+}
+
 func newConnBindRequest(username, password, realm, nonce string, id uint32) (*message, error) {
 
 	msg := &message{
@@ -226,11 +296,6 @@ func (this *message) getAttrConnID() (uint32, error) {
 
 // -------------------------------------------------------------------------------------------------
 
-func (svr *relayserver) sendToPeerTCP(addr *address, data []byte) {
-
-	// TODO
-}
-
 // intiate an outgoing connection to the remote peer
 func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 
@@ -262,6 +327,7 @@ func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 	tcpConn, _ := conn.(*net.TCPConn)
 	tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
 	tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+	tcpConn.SetKeepAlive(true)
 
 	id, err := dataConns.genConnID()
 	if err != nil {
@@ -269,37 +335,7 @@ func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 	}
 
 	// spawn a listening routine over peer data connection
-	go func(conn net.Conn, svr *relayserver, id uint32) {
-		// save this peer data connection and generate a new CONNECTION-ID
-		defer svr.tcpConns.del(peer)
-		defer conn.Close()
-		svr.tcpConns.set(peer, conn)
-		relay := &connInfo{
-			id:       id,
-			remote:   peer,
-			creation: time.Now(),
-			peerConn: conn,
-		}
-		defer dataConns.del(relay.id)
-		dataConns.set(relay.id, relay)
-
-		// TODO wait here for CONNECTION-BIND to establish client data connection
-		// otherwise we do not read any content in TCP buffer
-		// select case ticker, connBound chan bool
-
-		for {
-			conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
-
-			buf := make([]byte, DEFAULT_MTU)
-			_, err := conn.Read(buf)
-			if err != nil {
-				// TODO relayed connection disconnects, close the connection to client as well
-			}
-
-			// TODO send to client
-			//svr.sendToClientTCP()
-		}
-	}(conn, svr, id)
+	go svr.sendToClientTCP(tcpConn, id)
 
 	return id, nil
 }
@@ -319,65 +355,121 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 			break
 		}
 
-		// TODO check permissions for this peer
+		// check permissions for this peer
+		rm, _ := net.ResolveTCPAddr(tcpConn.RemoteAddr().Network(), tcpConn.RemoteAddr().String())
+		var ip net.IP
+		if ip = rm.IP.To4(); ip == nil {
+			ip = rm.IP // IPv6
+		}
+		if err := svr.allocRef.checkPerms(&address{ IP: ip }); err != nil {
+			Error("[%s] peer %s is not on perm list", svr.allocRef.key, rm.IP)
+			tcpConn.Close()
+			continue
+		}
 
 		// set TCP buffer size
 		tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
 		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
+		tcpConn.SetKeepAlive(true)
 
 		// generate a new connection ID for peer data connection
 		id, err := dataConns.genConnID()
 		if err != nil {
 			Error("[%s] no available ID when receiving new connection from peer %s",
-				keygen(&svr.allocRef.source), tcpConn.RemoteAddr())
+				svr.allocRef.key, tcpConn.RemoteAddr())
+			tcpConn.Close()
+			continue
 		}
 
 		// start a incoming TCP connection and
-		go func(conn *net.TCPConn, svr *relayserver, id uint32) {
-			rm, _ := net.ResolveTCPAddr(conn.RemoteAddr().Network(), conn.RemoteAddr().String())
+		go svr.sendToClientTCP(tcpConn, id)
 
-			// must convert to IPv4, sometimes it's in the form of IPv6
-			var ip net.IP
-			if ip = rm.IP.To4(); ip == nil {
-				ip = rm.IP // IPv6
-			}
+		// TODO send CONNECTION-ATTEMPT indication to client
+	}
+}
 
-			addr := &address{
-				IP:   ip,
-				Port: rm.Port,
-			}
+// forward data from peer to client
+func (svr *relayserver) sendToClientTCP(peerConn net.Conn, id uint32) {
 
-			defer svr.tcpConns.del(addr)
-			defer conn.Close()
-			svr.tcpConns.set(addr, conn)
+	rm, _ := net.ResolveTCPAddr(peerConn.RemoteAddr().Network(), peerConn.RemoteAddr().String())
 
-			// save metadata for peer data connection
-			relay := &connInfo{
-				id:       id,
-				remote:   addr,
-				creation: time.Now(),
-				peerConn: conn,
-			}
-			defer dataConns.del(relay.id)
-			dataConns.set(relay.id, relay)
+	// must convert to IPv4, sometimes it's in the form of IPv6
+	var ip net.IP
+	if ip = rm.IP.To4(); ip == nil {
+		ip = rm.IP // IPv6
+	}
 
-			// TODO send CONNECTION-ATTEMPT indication and wait for
-			// client to bind this connection by CONNECTION-BIND
-			// select case ticker, connBound chan bool
+	peer := &address{
+		IP:    ip,
+		Port:  rm.Port,
+		Proto: NET_TCP,
+	}
 
-			for {
-				conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
+	// save this peer data connection and generate a new CONNECTION-ID
+	defer svr.tcpConns.del(peer)
+	defer peerConn.Close()
+	svr.tcpConns.set(peer, peerConn)
 
-				buf := make([]byte, DEFAULT_MTU)
-				_, err := conn.Read(buf)
-				if err != nil {
-					// TODO relayed connection disconnects, close the connection to client as well
-				}
+	info := &connInfo{
+		id:        id,
+		remote:    peer,
+		client:    &svr.allocRef.source,
+		creation:  time.Now(),
+		peerConn:  peerConn,
+		connBound: make(chan bool),
+	}
+	defer dataConns.del(info.id)
+	dataConns.set(info.id, info)
 
-				// TODO send to client
-				//svr.sendToClientTCP()
-			}
-		}(tcpConn, svr, id)
+	// wait here for CONNECTION-BIND to establish client data connection
+	// otherwise we do not read any content in TCP buffer
+	ticker := time.NewTicker(time.Second * TCP_RELAY_MAX_CONN_TIMEOUT)
+	select {
+	case <-ticker.C: return // close this peer connection due to timeout
+	case <-info.connBound: break
+	}
+	// if peer data connection is lost, close client data connection as well
+	// following deferred function must be set after CONNECTION-BIND succeeds
+	// https://datatracker.ietf.org/doc/html/rfc6062#section-5.5
+	defer info.dataConn.SetDeadline(time.Now())
+
+	for {
+		peerConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
+
+		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
+		nr, err := peerConn.Read(buf)
+		if err != nil {
+			Info("[%s] tcp fwd to client id=%d: %s", svr.allocRef.key, info.id, err)
+			break
+		}
+
+		// send to client
+		info.dataConn.Write(buf[:nr])
+	}
+}
+
+// forward data from client to peer
+func (svr *relayserver) sendToPeerTCP(info *connInfo) {
+
+	defer tcpConns.del(info.dataAddr)
+	defer info.dataConn.Close()
+
+	// https://datatracker.ietf.org/doc/html/rfc6062#section-5.5
+	// the life cycle for both data connection and peer connection are the same
+	defer info.peerConn.SetDeadline(time.Now())
+
+	for {
+		info.dataConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
+
+		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
+		nr, err := info.dataConn.Read(buf)
+		if err != nil {
+			Info("[%s] tcp fwd to peer=%s: %s", svr.allocRef.key, info.remote, err)
+			break
+		}
+
+		// send to peer
+		info.peerConn.Write(buf[:nr])
 	}
 }
 
@@ -407,12 +499,9 @@ func (svr *relayserver) listenTCP(addr string) (*dummyConn, error) {
 	return dummy, nil
 }
 
-func (svr *relayserver) sendToClientTCP() {
-
-	// TODO
-}
-
 func (svr *relayserver) clear() {
+
+	Info("[%s] allocation expired", svr.allocRef.key)
 
 	switch svr.allocRef.transport {
 	case PROTO_NUM_TCP: svr.clearRelayTCP()
@@ -422,8 +511,13 @@ func (svr *relayserver) clear() {
 
 func (svr *relayserver) clearRelayTCP() {
 
-	// TODO close all connections with the client
-	// TODO close all connections associated with the relay
+	// close all peer data connections
+	svr.tcpConns.getAll(
+		func(c net.Conn) {
+
+			c.SetDeadline(time.Now())
+		},
+	)
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -507,13 +601,13 @@ func (cl *stunclient) BindConn(id uint32) error {
 		if info = cl.dataConnMap.get(id); info == nil {
 			return fmt.Errorf("could not find this connection")
 		}
-		if err := transmitTCP(info.clientConn, nil, nil, req.buffer()); err != nil {
+		if err := transmitTCP(info.dataConn, nil, nil, req.buffer()); err != nil {
 			return fmt.Errorf("transmit error: %s", err)
 		}
 
 		// get response from server
 		rbuf := make([]byte, DEFAULT_MTU)
-		if _, err := info.clientConn.Read(rbuf); err != nil {
+		if _, err := info.dataConn.Read(rbuf); err != nil {
 			return fmt.Errorf("read from TCP: %s", err)
 		}
 		var resp *message
@@ -584,10 +678,10 @@ func (cl *stunclient) connectTCP2(connID uint32, connType byte) error {
 			return fmt.Errorf("TLS handshake: %s", err)
 		}
 		cl.dataConns.set(info.remote, tlsConn)
-		info.clientConn = tlsConn
+		info.dataConn = tlsConn
 	} else {
 		cl.dataConns.set(info.remote, tcpConn)
-		info.clientConn = tcpConn
+		info.dataConn = tcpConn
 	}
 
 	return nil
@@ -595,17 +689,17 @@ func (cl *stunclient) connectTCP2(connID uint32, connType byte) error {
 
 func (cl *stunclient) receiveTCP2(info *connInfo) {
 
-	if info == nil || info.clientConn == nil {
+	if info == nil || info.dataConn == nil {
 		return
 	}
 
 	defer cl.dataConns.del(info.remote)
-	defer info.clientConn.Close()
+	defer info.dataConn.Close()
 	defer cl.dataConnMap.del(info.id)
 
 	for {
 		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
-		nr, err := info.clientConn.Read(buf)
+		nr, err := info.dataConn.Read(buf)
 		if err != nil {
 			break
 		}

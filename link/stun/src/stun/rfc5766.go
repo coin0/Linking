@@ -1187,7 +1187,7 @@ func (svr *relayserver) spawn() error {
 		}
 
 		// poll fds
-		ticker := time.NewTicker(time.Second * 60) // TODO reduce interval for TCP conn check
+		ticker := time.NewTicker(time.Second * 60)
 		timer := time.NewTimer(time.Second * time.Duration(svr.allocRef.lifetime))
 		for quit := false; !quit; {
 			select {
@@ -1198,7 +1198,6 @@ func (svr *relayserver) spawn() error {
 					svr.allocRef.nonce = genNonceWithCookie(STUN_NONCE_LENGTH)
 					svr.allocRef.nonceExp = now.Add(time.Second * time.Duration(TURN_NONCE_EXPIRY))
 				}
-				// TODO TCP relay needs check expiry of CONNECT request
 			case <-timer.C:
 				if seconds, err := svr.allocRef.getRestLife(); err == nil {
 					timer = time.NewTimer(time.Second * time.Duration(seconds))
@@ -1230,9 +1229,10 @@ func (svr *relayserver) kill() {
 
 func (svr *relayserver) sendToPeer(addr *address, data []byte) {
 
+	// note: TCP transmission is defined in rfc6062: sendToPeerTCP()
 	switch svr.allocRef.transport {
-	case PROTO_NUM_TCP: go svr.sendToPeerTCP(addr, data)
 	case PROTO_NUM_UDP: go svr.sendToPeerUDP(addr, data)
+	default: Error("[%s] unknown transport type: %d", svr.allocRef.key, svr.allocRef.transport)
 	}
 }
 

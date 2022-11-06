@@ -61,10 +61,6 @@ var (
 		conns: map[string]net.Conn{},
 		lck:   &sync.Mutex{},
 	}
-	dataConns = &tcpRelayInfo{
-		conns: map[uint32]*connInfo{},
-		lck:   &sync.Mutex{},
-	}
 )
 
 // -------------------------------------------------------------------------------------------------
@@ -99,6 +95,17 @@ func (pool *tcpPool) del(addr *address) {
 	pool.lck.Lock()
 	defer pool.lck.Unlock()
 	delete(pool.conns, keygen(addr))
+}
+
+type fnIterTCP func(net.Conn)
+
+func (pool *tcpPool) getAll(cb fnIterTCP) {
+
+	pool.lck.Lock()
+	defer pool.lck.Unlock()
+	for _, c := range pool.conns {
+		cb(c)
+	}
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -259,6 +266,7 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 
 		// demux TCP TLS and retain data read by tls.handshake()
 		conn, addr := demuxTCP(tcpConn, tlsConf)
+		Info("tcp: accept new conn from src=%s", addr)
 
 		defer tcpConns.del(addr)
 		defer conn.Close()
@@ -319,8 +327,14 @@ func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (conn net.Conn, addr *a
 		// unable to parse ClientHello, we think this is a plain TCP connection
 		conn, addr.Proto = tcpConn, NET_TCP
 
+		// this is confusing but we have to save connection here because CONNECTION-BIND request
+		// must be sent over a new TCP connection apart from control connection, when server
+		// handles CONNECTION-BIND it requires peer address from *connInfo
+		tcpConns.set(addr, conn)
+
 		// we must retain the data read by tls.Handshake() then
 		// process this request as the initial allocation
+		// possible valid requests are ALLOCATE and CONNECTION-BIND
 		if one, _, err := decodeTCP(dummy.readBuf); err == nil {
 			if resp := process(one, addr); resp != nil {
 				conn.Write(resp)
@@ -501,6 +515,7 @@ func (this *message) process(r *address) (*message, error) {
 	switch this.method | this.encoding {
 	case STUN_MSG_METHOD_ALLOCATE | STUN_MSG_REQUEST: return this.doAllocationRequest(r)
 	case STUN_MSG_METHOD_BINDING | STUN_MSG_REQUEST:  return this.doBindingRequest(r)
+	case STUN_MSG_METHOD_CONN_BIND | STUN_MSG_REQUEST: return this.doConnBindRequest(r)
 	}
 
 	// general check
@@ -542,7 +557,7 @@ func parseMessageType(method, encoding uint16) (m string, e string) {
 	case STUN_MSG_METHOD_CREATE_PERM: m = "create_permission"
 	case STUN_MSG_METHOD_CHANNEL_BIND: m = "channel_bind"
 	case STUN_MSG_METHOD_CONNECT: m = "connect"
-	case STUN_MSG_METHOD_CONN_BIND: m = "connect_bind"
+	case STUN_MSG_METHOD_CONN_BIND: m = "connection_bind"
 	case STUN_MSG_METHOD_CONN_ATTEMPT: m = "connection_attempt"
 	default: m = "unknown"
 	}
@@ -610,6 +625,13 @@ func (addr *address) String() string {
 			default: return "unknown"
 			}
 		}(addr.Proto), url, addr.Port)
+}
+
+func (addr *address) Equal(other *address) bool {
+
+	return (addr.IP.Equal(other.IP) &&
+		addr.Port == other.Port &&
+		addr.Proto == other.Proto)
 }
 
 // -------------------------------------------------------------------------------------------------
