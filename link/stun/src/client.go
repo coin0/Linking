@@ -74,7 +74,7 @@ func usage() {
 	fmt.Printf("e <ip> <port>            : create a new peer data connection\n")
 	fmt.Printf("f <conn-id>              : create a new client data connection\n")
 	fmt.Printf("c <ip> <port>            : bind a channel\n")
-	fmt.Printf("x <iP> <port> <message>  : send a single line text message to peers\n")
+	fmt.Printf("x <ip> <port> <message>  : send a single line text message to peers\n")
 	fmt.Printf("l                        : start listening messages from other peers\n")
 	fmt.Printf("d                        : disconnect from the server\n")
 	fmt.Printf("q                        : quit this client\n")

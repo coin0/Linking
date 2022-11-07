@@ -182,6 +182,9 @@ type stunclient struct {
 	// relayed address
 	relay       *address
 
+	// relay transport type
+	transport   byte
+
 	// channels
 	channels    map[string]uint16
 
@@ -1766,6 +1769,7 @@ func (cl *stunclient) Alloc(relaytype string) error {
 	if relaytype == "tcp" {
 		transport = PROTO_NUM_TCP
 	}
+	cl.transport = transport
 
 	// create initial alloc request
 	req, _ := newInitAllocationRequest(transport)
@@ -1975,16 +1979,35 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 // TODO send data to tcp relay
 func (cl *stunclient) Send(ip string, port int, data []byte) error {
 
-	// check if any channel created for the peer
-	key := keygen(
-		&address{
-			IP: net.ParseIP(ip).To4(),
-			Port: port,
-			Proto: NET_UDP,
-		},)
+	// proto needs to be set properly according to client's relay type
+	transport := byte(NET_UDP)
+	if cl.transport == PROTO_NUM_TCP {
+		transport = NET_TCP
+	}
+	peer := &address{
+		IP: net.ParseIP(ip).To4(),
+		Port: port,
+		Proto: transport,
+	}
+	key := keygen(peer)
 	buf := []byte{}
 
+	// for TCP relay we send data as-is over data connections
+	if transport == NET_TCP {
+		conn := cl.dataConns.get(peer)
+		if conn == nil {
+			return fmt.Errorf("connection does not exist")
+		}
+		if cl.DebugOn {
+			str := fmt.Sprintf("========== client > server(%s) ==========\n", cl.remote)
+			str += fmt.Sprintf("client data connection, length=%d bytes\n", len(data))
+			str += fmt.Sprintf("  %s", dbg.DumpMem(data, 0))
+			fmt.Println(str)
+		}
+		return transmitTCP(conn, nil, nil, data)
+	}
 
+	// for UDP relay type client will send data over control connections
 	for i :=0; i < len(data); {
 
 		// send data via channel if channel already exists otherwise via indication
