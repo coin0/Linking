@@ -198,6 +198,8 @@ type stunclient struct {
 	// client data connection pool
 	dataConns   *tcpPool           // search conn by peer addr as a key
 	dataConnMap *tcpRelayInfo      // search conn info by connID as a key
+	// receive data between receiveTCP2 and receiveLoopTCP go routines
+	dataBuffer  chan []byte
 
 	// message listener
 	dataSub     *subclient
@@ -1515,6 +1517,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 			conns: map[uint32]*connInfo{},
 			lck:   &sync.Mutex{},
 		},
+		dataBuffer: make(chan []byte),
 		dataSub: &subclient{
 			transactionID: []byte{ 0 },
 			listener: make(chan []byte),
@@ -1976,7 +1979,6 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 	return nil
 }
 
-// TODO send data to tcp relay
 func (cl *stunclient) Send(ip string, port int, data []byte) error {
 
 	// proto needs to be set properly according to client's relay type
@@ -1999,7 +2001,8 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 			return fmt.Errorf("connection does not exist")
 		}
 		if cl.DebugOn {
-			str := fmt.Sprintf("========== client > server(%s) ==========\n", cl.remote)
+			str := fmt.Sprintf("========== client(%s) > server(%s) ==========\n",
+				conn.LocalAddr(), cl.remote)
 			str += fmt.Sprintf("client data connection, length=%d bytes\n", len(data))
 			str += fmt.Sprintf("  %s", dbg.DumpMem(data, 0))
 			fmt.Println(str)
@@ -2039,7 +2042,7 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 			buf = msg.buffer()
 		}
 
-		// size should be lower than MTU
+		// size should be smaller than MTU
 		if len(buf) > DEFAULT_MTU {
 			sz := len(data[i:]) - (len(buf) - DEFAULT_MTU)
 			i += sz // relocate rest buffer
@@ -2060,7 +2063,12 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 
 func (cl *stunclient) Receive(cb func([]byte, error)int) error {
 
+	// receive stun messages from remote server
 	go cl.receiveLoop(cb)
+
+	switch cl.transport {
+	case PROTO_NUM_TCP: go cl.receiveLoopTCP(cb) // receive raw data via TCP data connections
+	}
 
 	return nil
 }

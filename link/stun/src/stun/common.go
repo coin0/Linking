@@ -97,9 +97,7 @@ func (pool *tcpPool) del(addr *address) {
 	delete(pool.conns, keygen(addr))
 }
 
-type fnIterTCP func(net.Conn)
-
-func (pool *tcpPool) getAll(cb fnIterTCP) {
+func (pool *tcpPool) getAll(cb func(net.Conn)) {
 
 	pool.lck.Lock()
 	defer pool.lck.Unlock()

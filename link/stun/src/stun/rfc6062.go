@@ -740,16 +740,45 @@ func (cl *stunclient) receiveTCP2(info *connInfo) {
 			break
 		}
 
-		// receive peer data as-is
-		if cl.DebugOn {
-			str := fmt.Sprintf("========== server(%s) > client ==========\n", cl.remote)
-			str += fmt.Sprintf("client data connection, length=%d bytes\n", nr)
-			str += fmt.Sprintf("  %s", dbg.DumpMem(buf[:nr], 0))
-			fmt.Println(str)
+		// send data to user's callback function
+		if cl.dataBuffer != nil {
+			// this channel will block if client does not listen on the data connection
+			cl.dataBuffer <- buf[:nr]
+
+			// receive peer data as-is
+			if cl.DebugOn {
+				str := fmt.Sprintf("========== server(%s) > client(%s) ==========\n",
+					cl.remote, info.dataConn.LocalAddr())
+				str += fmt.Sprintf("client data connection, length=%d bytes\n", nr)
+				str += fmt.Sprintf("  %s", dbg.DumpMem(buf[:nr], 0))
+				fmt.Println(str)
+			}
 		}
 	}
 
 	fmt.Printf("connection closed, id=%d\n", info.id)
+}
+
+func (cl *stunclient) receiveLoopTCP(cb func([]byte, error)int) error {
+
+	st := 0
+
+	for {
+		// read buffer from data connections
+		buf := <-cl.dataBuffer
+
+		if buf == nil || len(buf) == 0 {
+			st = cb(nil, fmt.Errorf("empty data"))
+		} else {
+			st = cb(buf, nil)
+		}
+
+		if st != 0 {
+			break
+		}
+	}
+
+	return nil
 }
 
 func (cl *stunclient) onReceiveConnAttempt(msg *message) error {
