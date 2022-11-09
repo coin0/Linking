@@ -610,6 +610,10 @@ func (cl *stunclient) Connect(ip string, port int) error {
 				return fmt.Errorf("success response: %s", err)
 			}
 			cl.dataConnMap.set(id, &connInfo{ id: id, remote: peer })
+			// bind a new connection associated with responded connection ID
+			if err = cl.bindConn(id); err != nil {
+				return fmt.Errorf("bind connection: %s", err)
+			}
 		}
 		break
 	}
@@ -617,7 +621,7 @@ func (cl *stunclient) Connect(ip string, port int) error {
 	return nil
 }
 
-func (cl *stunclient) BindConn(id uint32) error {
+func (cl *stunclient) bindConn(id uint32) error {
 
 	for retry := 2; retry > 0; {
 
@@ -783,13 +787,19 @@ func (cl *stunclient) receiveLoopTCP(cb func([]byte, error)int) error {
 
 func (cl *stunclient) onReceiveConnAttempt(msg *message) error {
 
-	if id, err := msg.getAttrConnID(); err != nil {
+	id, err := msg.getAttrConnID()
+	if err != nil {
 		return fmt.Errorf("missing connection id in CONNECTION-ATTEMPT")
 	} else if peer, err := msg.getAttrXorPeerAddress(); err != nil {
 		return fmt.Errorf("missing peer address in CONNECTION-ATTEMPT")
 	} else {
 		peer.Proto = NET_TCP // TCP relay type
 		cl.dataConnMap.set(id, &connInfo{ id: id, remote: peer })
+	}
+
+	// bind incoming connections
+	if err := cl.bindConn(id); err != nil {
+		return fmt.Errorf("bind connection: %s", err)
 	}
 
 	return nil

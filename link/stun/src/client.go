@@ -72,7 +72,6 @@ func usage() {
 	fmt.Printf("r <lifetime>             : send a refresh request\n")
 	fmt.Printf("p <ip1> <ip2> <ip...>    : create permission request\n")
 	fmt.Printf("e <ip> <port>            : create a new peer data connection\n")
-	fmt.Printf("f <conn-id>              : create a new client data connection\n")
 	fmt.Printf("c <ip> <port>            : bind a channel\n")
 	fmt.Printf("x <ip> <port> <message>  : send a single line text message to peers\n")
 	fmt.Printf("l                        : start listening messages from other peers\n")
@@ -230,6 +229,18 @@ func pong1(ip string, port int) error {
 	return nil
 }
 
+func ping2(ip string, port, size, dur int) error {
+
+	// TODO
+	return nil
+}
+
+func pong2(ip string, port int) error {
+
+	// TODO
+	return nil
+}
+
 func exec(input string) (err error) {
 
 	defer func() {
@@ -277,10 +288,6 @@ func exec(input string) (err error) {
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
 		err = client.Connect(get(input, 1), p)
-	case 'f':
-		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
-		id, _ := strconv.Atoi(get(input, 1))
-		err = client.BindConn(uint32(id))
 	case 'c':
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
@@ -307,11 +314,19 @@ func exec(input string) (err error) {
 		p, _ := strconv.Atoi(get(input, 2))
 		sz, _ := strconv.Atoi(get(input, 3))
 		dur, _ := strconv.Atoi(get(input, 4))
-		err = ping1(get(input, 1), p, sz, dur)
+		if transport == "udp" {
+			err = ping1(get(input, 1), p, sz, dur)
+		} else {
+			err = ping2(get(input, 1), p, sz, dur)
+		}
 	case 'Q':
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
-		err = pong1(get(input, 1), p)
+		if transport == "udp" {
+			err = pong1(get(input, 1), p)
+		} else {
+			err = pong2(get(input, 1), p)
+		}
 	default:
 		err = fmt.Errorf("invalid command")
 	}
