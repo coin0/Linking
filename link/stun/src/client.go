@@ -162,7 +162,7 @@ func ping1(ip string, port, size, dur int) error {
 				// send data to pong side
 				ping.UpdateSeq(toSend, seq)
 				seq++
-				ping.UpdateDur(toSend, time.Duration(dur) * time.Millisecond)
+				ping.UpdateSize(toSend, len(toSend))
 				ping.UpdateSendTime(toSend, time.Now())
 				if err := client.Send(ip, port, toSend); err != nil {
 					Error("ping send: %s", err.Error())
@@ -229,15 +229,124 @@ func pong1(ip string, port int) error {
 	return nil
 }
 
+// TCP relay support
 func ping2(ip string, port, size, dur int) error {
 
-	// TODO
+	meter := ping.NewMeter(time.Second * 5)
+
+	// respawn receive routine on error out and start initial routine
+	ech := make(chan error)
+	run := func() {
+		client.Receive(func(data []byte, err error) int {
+			if err != nil {
+				Error("ping2 receive: %s", err.Error())
+				ech <- err
+				return -1
+			}
+
+			if err := meter.ReceiveWithTime(data, time.Now()); err != nil {
+				Error("ping2 read: %s", err.Error())
+			}
+
+			return 0
+		})
+	}
+	refresh := func() {
+		if err := client.Refresh(600); err != nil {
+			Error("refresh error: %s", err.Error())
+		}
+	}
+	connect := func() {
+		if err := client.Connect(ip, port); err != nil {
+			Error("connect error: %s", err.Error())
+		}
+	}
+
+	refresh()
+	connect()
+	run()
+
+	// ticker for REFRESH allocation
+	reftick := time.NewTicker(time.Second * 180)
+	// ticker to send ping packets
+	sendtick := time.NewTicker(time.Duration(dur) * time.Millisecond)
+	payload := make([]byte, size, size)
+	var seq uint64
+	for {
+		select {
+		case <-ech:
+			run()
+		case <-reftick.C:
+			refresh()
+		case <-sendtick.C:
+			// send data to pong side
+			ping.UpdateSeq(payload, seq)
+			seq++
+			ping.UpdateSize(payload, len(payload))
+			ping.UpdateSendTime(payload, time.Now())
+			if err := client.Send(ip, port, payload); err != nil {
+				Error("ping2 send: %s", err.Error())
+				return fmt.Errorf("ping2 send: %s", err)
+			} else {
+				meter.Send(payload)
+			}
+		}
+	}
+
 	return nil
 }
 
+// TCP relay support
 func pong2(ip string, port int) error {
 
-	// TODO
+	ech := make(chan error)
+	run := func() {
+		client.Receive(func(data []byte, err error) int {
+			if err != nil {
+				Error("pong2 receive: %s", err.Error())
+				ech <- err
+				return -1
+			}
+			ping.UpdateRespTime(data, time.Now())
+
+			// send back to the peer who initiated ping test
+			if err := client.Send(ip, port, data); err != nil {
+				Error("pong2 send: %s", err.Error())
+				ech <- err
+				return -1
+			}
+
+			return 0
+		})
+	}
+	refresh := func() {
+		if err := client.Refresh(600); err != nil {
+			Error("refresh error: %s", err.Error())
+		}
+	}
+	createPerm := func() {
+		if err := client.CreatePerm([]string{ ip }); err != nil {
+			Error("create permission error: %s", err.Error())
+		}
+	}
+	refresh()
+	createPerm()
+	run()
+
+	// just for keep alive
+	reftick := time.NewTicker(time.Second * 180)
+	permtick := time.NewTicker(time.Second * 120)
+	for {
+		select {
+		case <-ech:
+			run()
+		case <-reftick.C:
+			refresh()
+		case <-permtick.C:
+			createPerm()
+		}
+	}
+
 	return nil
 }
 

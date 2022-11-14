@@ -8,7 +8,7 @@ import(
 
 const(
 	SEQ_INDEX     = 0
-	DUR_INDEX     = 8
+	SIZE_INDEX    = 8
 	SENDTS_INDEX  = 16
 	RESPTS_INDEX  = 24
 	RECVTS_INDEX  = 32
@@ -27,11 +27,8 @@ type packetInfo struct {
 	// sequence number starting from 0
 	seq   uint64
 
-	// target packet sending rate
-	dur   time.Duration
-
 	// payload size to estimate average bandwidth
-	size  int
+	size  uint64
 
 	// packet status
 	status int
@@ -49,13 +46,17 @@ type packetInfo struct {
 	recvts time.Time
 }
 
+func (info *packetInfo) String() string {
+
+	return fmt.Sprintf("seq=%d size=%d status=%d", info.seq, info.size, info.status)
+}
+
 func loadInfo(data []byte) (*packetInfo, error) {
 
 	if len(data) < PKT_MIN_SIZE {
 		return nil, fmt.Errorf("payload is too short")
 	}
 
-	dur := time.Nanosecond * time.Duration(binary.BigEndian.Uint64(data[DUR_INDEX:]))
 	n := int64(binary.BigEndian.Uint64(data[SENDTS_INDEX:]))
 	sendts := time.Unix(n / 1000000000, n % 1000000000)
 	n = int64(binary.BigEndian.Uint64(data[RESPTS_INDEX:]))
@@ -63,14 +64,19 @@ func loadInfo(data []byte) (*packetInfo, error) {
 	n = int64(binary.BigEndian.Uint64(data[RECVTS_INDEX:]))
 	recvts := time.Unix(n / 1000000000, n % 1000000000)
 
-	return &packetInfo{
+	pkt := &packetInfo{
 		seq: 	binary.BigEndian.Uint64(data[SEQ_INDEX:]),
-		dur:    dur,
-		size:   len(data),
+		size:   binary.BigEndian.Uint64(data[SIZE_INDEX:]),
 		sendts: sendts,
 		respts: respts,
 		recvts: recvts,
-	}, nil
+	}
+
+	if len(data) < int(pkt.size) {
+		return nil, fmt.Errorf("payload is not complete")
+	}
+
+	return pkt, nil
 }
 
 func put64(data []byte, index int, n uint64) error{
@@ -87,9 +93,9 @@ func UpdateSeq(data []byte, seq uint64) error {
 	return put64(data, SEQ_INDEX, seq)
 }
 
-func UpdateDur(data []byte, dur time.Duration) error {
+func UpdateSize(data []byte, size int) error {
 
-	return put64(data, DUR_INDEX, uint64(dur.Nanoseconds()))
+	return put64(data, SIZE_INDEX, uint64(size))
 }
 
 func UpdateArrTime(data []byte, t time.Time) error {

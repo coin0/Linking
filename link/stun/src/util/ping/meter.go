@@ -25,6 +25,9 @@ type trafficMeter struct {
 	seqHistory  map[uint64]*packetInfo
 	seqSent     int64
 	seqRecv     int64
+	// for TCP we shall cache payload when input is not a complete packet
+	sendBuf     []byte
+	recvBuf     []byte
 
 	// send and receive count (dup or invalid pkt might be included)
 	sendCounts  int64
@@ -52,6 +55,8 @@ func NewMeter(cycle time.Duration) *trafficMeter {
 		buffer:     []*packetInfo{},
 		bufferLck:  &sync.Mutex{},
 		seqHistory: map[uint64]*packetInfo{},
+		sendBuf:    []byte{},
+		recvBuf:    []byte{},
 		opLck:      &sync.Mutex{},
 		wg:         &sync.WaitGroup{},
 		ech:        make(chan byte),
@@ -116,19 +121,33 @@ func (meter *trafficMeter) Stop() error {
 func (meter *trafficMeter) Send(data []byte) error {
 
 	atomic.AddInt64(&meter.sendBytes, int64(len(data)))
-	atomic.AddInt64(&meter.sendCounts, 1)
-
-	info, err := loadInfo(data)
-	if err != nil {
-		return fmt.Errorf("invalid packet")
-	}
 
 	meter.bufferLck.Lock()
 	defer meter.bufferLck.Unlock()
 
-	if _, ok := meter.seqHistory[info.seq]; !ok {
-		info.status = PKT_SENT
-		meter.seqHistory[info.seq] = info
+	// for TCP stream we shall  append previous cached incomplete payload
+	// to the beginning of current input data
+	if len(meter.sendBuf) > 0 {
+		data = append(meter.sendBuf, data...)
+	}
+
+	offset := 0
+	for {
+		info, err := loadInfo(data[offset:])
+		if err != nil {
+			// cache payloads for incomplete packets
+			meter.sendBuf = data[offset:]
+			break
+		}
+		// now we've sent a complete packet
+		atomic.AddInt64(&meter.sendCounts, 1)
+		meter.sendBuf = []byte{}
+		offset += int(info.size)
+
+		if _, ok := meter.seqHistory[info.seq]; !ok {
+			info.status = PKT_SENT
+			meter.seqHistory[info.seq] = info
+		}
 	}
 
 	return nil
@@ -136,29 +155,54 @@ func (meter *trafficMeter) Send(data []byte) error {
 
 func (meter *trafficMeter) Receive(data []byte) error {
 
+	return meter.ReceiveWithTime(data, time.Time{})
+}
+
+func (meter *trafficMeter) ReceiveWithTime(data []byte, ts time.Time) error {
+
 	// traffic throughput
 	atomic.AddInt64(&meter.recvBytes, int64(len(data)))
-	atomic.AddInt64(&meter.recvCounts, 1)
-
-	info, err := loadInfo(data)
-	if err != nil {
-		return err
-	}
 
 	meter.bufferLck.Lock()
 	defer meter.bufferLck.Unlock()
 
-	meter.buffer = append(meter.buffer, info)
-	if _, ok := meter.seqHistory[info.seq]; !ok {
-		info.status = PKT_OBSOLETE
-	} else {
-		if meter.seqHistory[info.seq].status == PKT_RECV {
-			Verbose("packet with duplicated sequence number %d", info.seq)
-		} else {
-			info.status = PKT_RECV
-		}
+	if len(meter.recvBuf) > 0 {
+		data = append(meter.recvBuf, data...)
 	}
-	meter.seqHistory[info.seq] = info
+
+	offset := 0
+	for {
+		info, err := loadInfo(data[offset:])
+		if err != nil {
+			meter.recvBuf = data[offset:]
+			break
+		}
+
+		// tcp stream would receive multiple packets once
+		// use ReciveWithTime() instead
+		if !ts.IsZero() {
+			// update arrival time only when a complete packet is received
+			UpdateArrTime(data[offset:], time.Now())
+			info, _ = loadInfo(data[offset:])
+		}
+
+		// now we've received a complete packet, clear recvBuf and move offset cursor
+		atomic.AddInt64(&meter.recvCounts, 1)
+		meter.recvBuf = []byte{}
+		offset += int(info.size)
+
+		meter.buffer = append(meter.buffer, info)
+		if _, ok := meter.seqHistory[info.seq]; !ok {
+			info.status = PKT_OBSOLETE
+		} else {
+			if meter.seqHistory[info.seq].status == PKT_RECV {
+				Verbose("packet with duplicated sequence number %d", info.seq)
+			} else {
+				info.status = PKT_RECV
+			}
+		}
+		meter.seqHistory[info.seq] = info
+	}
 
 	return nil
 }
