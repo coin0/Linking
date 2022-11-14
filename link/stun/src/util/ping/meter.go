@@ -229,6 +229,7 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 	}
 	meter.stats.seqSentTotal += meter.stats.seqSent
 	meter.stats.seqRecvTotal += meter.stats.seqRecv
+	meter.stats.seqObsoTotal += meter.stats.seqObsolete
 
 	// sort by sendts in ascending order
 	sort.Slice(meter.buffer, func(i, j int) bool {
