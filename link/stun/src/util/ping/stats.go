@@ -60,7 +60,7 @@ func (s *statistics) String() string {
 	// calculate loss ratio
 	if s.seqRecv + s.seqSent == 0 {
 		return fmt.Sprintf(
-			"%d tx=%d,%d rx=%d,%d out=%d,%d(kbps) in=%d,%d(kbps) seq=N/A rtt=N/A loss=N/A jitter=N/A",
+			"%d tx=%d,%d rx=%d,%d out=%d,%d(kbps) in=%d,%d(kbps) seq=N/A rtt=N/A loss=N/A pkt=N/A jitter=N/A",
 			s.index,
 			s.sCounts, s.sCountsTotal,
 			s.rCounts, s.rCountsTotal,
