@@ -324,6 +324,7 @@ func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (conn net.Conn, addr *a
 	if err := tlsConn.Handshake(); err != nil {
 		// unable to parse ClientHello, we think this is a plain TCP connection
 		conn, addr.Proto = tcpConn, NET_TCP
+		Info("tls handshake from src=%s: %s", addr, err)
 
 		// this is confusing but we have to save connection here because CONNECTION-BIND request
 		// must be sent over a new TCP connection apart from control connection, when server
