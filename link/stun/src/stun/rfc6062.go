@@ -473,14 +473,14 @@ func (svr *relayserver) sendToClientTCP(peerConn net.Conn, id uint32) {
 		peerConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
 		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
-		nr, err := peerConn.Read(buf)
-		if err != nil {
-			Info("[%s] tcp fwd to client id=%d: %s", svr.allocRef.key, info.id, err)
+		// read data and send to client
+		if nr, err := peerConn.Read(buf); err != nil {
+			Info("[%s] tcp read: fwd to client id=%d: %s", svr.allocRef.key, info.id, err)
+			break
+		} else if _, err = info.dataConn.Write(buf[:nr]); err != nil {
+			Info("[%s] tcp write: fwd to client id=%d: %s", svr.allocRef.key, info.id, err)
 			break
 		}
-
-		// send to client
-		info.dataConn.Write(buf[:nr])
 	}
 }
 
@@ -498,14 +498,14 @@ func (svr *relayserver) sendToPeerTCP(info *connInfo) {
 		info.dataConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
 		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
-		nr, err := info.dataConn.Read(buf)
-		if err != nil {
-			Info("[%s] tcp fwd to peer=%s: %s", svr.allocRef.key, info.remote, err)
+		// read data and send to peer
+		if nr, err := info.dataConn.Read(buf); err != nil {
+			Info("[%s] tcp read: fwd to peer=%s: %s", svr.allocRef.key, info.remote, err)
+			break
+		} else if _, err = info.peerConn.Write(buf[:nr]); err != nil {
+			Info("[%s] tcp write: fwd to peer=%s: %s", svr.allocRef.key, info.remote, err)
 			break
 		}
-
-		// send to peer
-		info.peerConn.Write(buf[:nr])
 	}
 }
 
