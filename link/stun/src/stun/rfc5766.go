@@ -1610,27 +1610,35 @@ func (cl *stunclient) connectUDP() error {
 
 func (cl *stunclient) receiveTCP() error {
 
+	if cl.tcpConn == nil {
+		return fmt.Errorf("tcp connection is not valid")
+	}
+
 	for {
 		// this is the receiver buffer
 		buf := make([]byte, DEFAULT_MTU)
 
-		if cl.tcpConn != nil {
-			// TCP connection with server
-			nr, err := cl.tcpConn.Read(buf)
-			if err != nil {
-				return fmt.Errorf("read from TCP: %s", err)
-			}
+		// TCP connection with server
+		nr, err := cl.tcpConn.Read(buf)
+		if err != nil {
+			return fmt.Errorf("read from TCP: %s", err)
+		}
 
-			// each time we only decode 1 stun message or channel data
-			cl.tcpBuffer = append(cl.tcpBuffer, buf[:nr]...)
+		// each time we only decode 1 stun message or channel data
+		cl.tcpBuffer = append(cl.tcpBuffer, buf[:nr]...)
+
+		for {
 			var one []byte
 			one, cl.tcpBuffer, err = decodeTCP(cl.tcpBuffer)
 			if err != nil {
 				if len(cl.tcpBuffer) > TCP_MAX_BUF_SIZE {
 					cl.tcpBuffer = []byte{}
+					Error("TCP recv buf is full %d > %d", len(cl.tcpBuffer), TCP_MAX_BUF_SIZE)
 				}
+				break
 			}
 
+			// now we get one complete message / data
 			cl.receive(one)
 		}
 	}
