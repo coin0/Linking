@@ -182,7 +182,7 @@ func (meter *trafficMeter) ReceiveWithTime(data []byte, ts time.Time) error {
 		// use ReciveWithTime() instead
 		if !ts.IsZero() {
 			// update arrival time only when a complete packet is received
-			UpdateArrTime(data[offset:], time.Now())
+			UpdateArrTime(data[offset:], ts)
 			info, _ = loadInfo(data[offset:])
 		}
 
@@ -241,8 +241,8 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 	list := []*packetInfo{}
 	end := -1
 	for i, v := range meter.buffer {
+		end = i
 		if v.sendts.After(now.Add(-meter.cycle)) {
-			end = i
 			break
 		}
 	}
