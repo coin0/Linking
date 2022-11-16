@@ -685,7 +685,11 @@ func (cl *stunclient) connectTCP2(connID uint32, connType byte) error {
 		return fmt.Errorf("could not get connection")
 	}
 
-	raddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", cl.remote.IP, cl.remote.Port))
+	host := cl.remote.IP.String()
+	if cl.remote.IP == nil {
+		host = cl.remote.Host
+	}
+	raddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", host, cl.remote.Port))
 	if err != nil {
 		return fmt.Errorf("resolve TCP: %s", err)
 	}
