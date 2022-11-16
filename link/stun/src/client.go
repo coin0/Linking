@@ -80,6 +80,7 @@ func usage() {
 	fmt.Printf("---------------------------------------------------------------------\n")
 	fmt.Printf("P <ip> <port> <sz> <int> : automation ping test with given sz and int\n")
 	fmt.Printf("Q <ip> <port>            : automation test for pong response\n")
+	fmt.Printf("S <tcp/udp> <sz> <int>   : self ping test with given sz and int\n")
 	fmt.Printf("\n")
 }
 
@@ -435,6 +436,24 @@ func exec(input string) (err error) {
 			err = pong1(get(input, 1), p)
 		} else {
 			err = pong2(get(input, 1), p)
+		}
+	case 'S':
+		if len(strings.Split(input, " ")) != 4 { return fmt.Errorf("arguments mismatch") }
+		// alloc for a relayed address
+		if err = exec(fmt.Sprintf("a %s 600", get(input, 1))); err != nil {
+			return fmt.Errorf("alloc: %s", err)
+		}
+		ip, port, err := client.RelayedAddr()
+		if err != nil {
+			return fmt.Errorf("could not get relayed address: %s", err)
+		}
+		// begin self ping test
+		sz, _ := strconv.Atoi(get(input, 2))
+		dur, _ := strconv.Atoi(get(input, 3))
+		if transport == "udp" {
+			err = ping1(ip, port, sz, dur)
+		} else {
+			err = ping2(ip, port, sz, dur)
 		}
 	default:
 		err = fmt.Errorf("invalid command")
