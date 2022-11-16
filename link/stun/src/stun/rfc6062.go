@@ -6,13 +6,12 @@ import (
 	"time"
 	. "util/log"
 	"crypto/md5"
-	"golang.org/x/sys/unix"
 	"context"
-	"syscall"
 	"sync"
 	"encoding/binary"
 	"util/dbg"
 	"crypto/tls"
+	"util/reuse"
 )
 
 const (
@@ -328,12 +327,7 @@ func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 
 	// an outgoing TCP connection must keep aligned with relayed transport address
 	d := net.Dialer{
-		Control: func(net, loc string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEADDR, 1)
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
-			})
-		},
+		Control: reuse.Control,
 		LocalAddr: laddr,
 		Timeout: time.Second * TCP_RELAY_MAX_CONN_TIMEOUT,
 	}
@@ -514,12 +508,7 @@ func (svr *relayserver) listenTCP(addr string) (*dummyConn, error) {
 	// TCP relayed address must set port and addr reuse since outgoing connection also require
 	// the same local address endpoint
 	cfg := net.ListenConfig{
-		Control: func(net, loc string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEADDR, 1)
-				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1)
-			})
-		},
+		Control: reuse.Control,
 	}
 
 	l, err := cfg.Listen(context.Background(), "tcp", addr)

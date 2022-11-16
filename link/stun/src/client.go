@@ -42,8 +42,16 @@ func init() {
 func parseAddr(addr string) (proto string, ip string, port int) {
 
 	str := strings.Split(addr, "://")
+	if len(str) != 2 {
+		fmt.Println("address format mismatch, try [udp/tcp/tls]://ip:port")
+		os.Exit(1)
+	}
 	proto = str[0]
 	str = strings.Split(str[1], ":")
+	if len(str) != 2 {
+		fmt.Println("address format mismatch, try [udp/tcp/tls]://ip:port")
+		os.Exit(1)
+	}
 	ip = str[0]
 	port, _ = strconv.Atoi(str[1])
 
