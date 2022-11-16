@@ -32,6 +32,7 @@ func init() {
 	conf.ClientArgs.Password = flag.String("p", "", "TURN/STUN server password")
 	conf.ClientArgs.Debug    = flag.Bool("d", false, "switch to turn on debug mode")
 	conf.ClientArgs.Log      = flag.String("log", "cl.log", "path for log file")
+	conf.ClientArgs.SelfTest = flag.String("t", "0", "perform self test (kbps)")
 	flag.Parse()
 
 	// parse server address
@@ -87,6 +88,7 @@ func usage() {
 func ping1(ip string, port, size, dur int) error {
 
 	meter := ping.NewMeter(time.Second * 5)
+	meter.DebugOn = *conf.ClientArgs.Debug
 
 	// respawn receive routine on error out and start initial routine
 	ech := make(chan error)
@@ -234,6 +236,7 @@ func pong1(ip string, port int) error {
 func ping2(ip string, port, size, dur int) error {
 
 	meter := ping.NewMeter(time.Second * 5)
+	meter.DebugOn = *conf.ClientArgs.Debug
 
 	// respawn receive routine on error out and start initial routine
 	ech := make(chan error)
@@ -476,10 +479,23 @@ func main() {
 	if err != nil {
 		fmt.Println("could not create client:", err)
 		Fatal("create client: %s", err)
-	} else {
-		client.DebugOn = *conf.ClientArgs.Debug
 	}
 
+	// if user perform TURN self test, only toggle DebugOn switch for statistics
+	if *conf.ClientArgs.SelfTest != "0" {
+		bandwidth, err := strconv.Atoi(*conf.ClientArgs.SelfTest)
+		if err != nil {
+			fmt.Println("invalid self test bandwidth")
+			Fatal("invalid self test bandwidth")
+		}
+		// assume we send ping packets every 10ms
+		// bandwidth x 1024 (bps) = block_size(bytes) x 8(bits) / 0.01(sec)
+		err = exec(fmt.Sprintf("S u %d 10", bandwidth * 1024 / 800))
+		fmt.Println(err)
+		Fatal("self test: %s", err)
+	}
+
+	client.DebugOn = *conf.ClientArgs.Debug
 	if client.DebugOn {
 		SetLevel(LEVEL_VERB)
 	} else {

@@ -40,6 +40,7 @@ type clientArgs struct {
 	Password   *string
 	Debug      *bool
 	Log        *string
+	SelfTest   *string
 }
 
 var (

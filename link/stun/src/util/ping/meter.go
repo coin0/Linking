@@ -11,6 +11,8 @@ import(
 )
 
 type trafficMeter struct {
+	DebugOn    bool
+
 	// statistics
 	stats      *statistics
 
@@ -92,6 +94,9 @@ func (meter *trafficMeter) Start() error {
 					Error("analyze(): %s", err.Error())
 				} else {
 					Info("stats: %s", stat)
+					if meter.DebugOn {
+						fmt.Println(stat)
+					}
 				}
 			case <-m.ech:
 				// exit go routine
