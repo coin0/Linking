@@ -29,8 +29,8 @@ var (
 func init() {
 
 	addr := flag.String("a", "udp://127.0.0.1:3478", "TURN/STUN server address")
-	conf.ClientArgs.Username = flag.String("u", "", "TURN/STUN server username")
-	conf.ClientArgs.Password = flag.String("p", "", "TURN/STUN server password")
+	conf.ClientArgs.Username = flag.String("u", "test", "TURN/STUN server username")
+	conf.ClientArgs.Password = flag.String("p", "111111", "TURN/STUN server password")
 	conf.ClientArgs.Debug    = flag.Bool("d", false, "switch to turn on debug mode")
 	conf.ClientArgs.Log      = flag.String("log", "cl.log", "path for log file")
 	conf.ClientArgs.SelfTest = flag.String("t", "0", "perform self test (kbps)")
@@ -523,6 +523,10 @@ func main() {
 		if err != nil {
 			fmt.Println("invalid self test bandwidth")
 			Fatal("invalid self test bandwidth")
+		}
+		if bandwidth > 1024 * 10 {
+			fmt.Println("max target bandwidth must be lower than 10Mbps")
+			Fatal("target bandwidth not supported")
 		}
 		// assume we send ping packets every 10ms
 		// bandwidth x 1024 (bps) = block_size(bytes) x 8(bits) / 0.01(sec)
