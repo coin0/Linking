@@ -242,7 +242,7 @@ var (
 
 func keygen(r *address) string {
 
-	return fmt.Sprintf("%d:%s:%d", r.Proto, r.IP.String(), r.Port)
+	return fmt.Sprintf("%d<%s>%d", r.Proto, r.IP.String(), r.Port)
 }
 
 func genNonce(length int) string {
@@ -795,7 +795,7 @@ func (this *message) getAttrXorPeerAddress() (*address, error) {
 		return nil, fmt.Errorf("not found")
 	}
 
-	return decodeXorAddr(attr)
+	return decodeXorAddr(attr, this.transactionID)
 }
 
 func (this *message) getAttrXorRelayedAddr() (*address, error) {
@@ -805,7 +805,7 @@ func (this *message) getAttrXorRelayedAddr() (*address, error) {
 		return nil, fmt.Errorf("not found")
 	}
 
-	return decodeXorAddr(attr)
+	return decodeXorAddr(attr, this.transactionID)
 }
 
 func (this *message) getAttrReservToken() ([]byte, error) {
@@ -839,7 +839,7 @@ func (this *message) getAttrXorPeerAddresses() ([]*address, error) {
 	}
 
 	for _, attr := range list {
-		addr, err := decodeXorAddr(attr)
+		addr, err := decodeXorAddr(attr, this.transactionID)
 		if err != nil {
 			return nil, fmt.Errorf("value invalid: %s", err)
 		}
@@ -1877,7 +1877,7 @@ func (cl *stunclient) Alloc(relaytype string) error {
 	// save srflx IP address
 	cl.srflx, err = resp.getAttrXorMappedAddr()
 	if err != nil {
-		return fmt.Errorf("binding response: srflx: %s", err)
+		return fmt.Errorf("alloc response: srflx: %s", err)
 	}
 	cl.srflx.Proto = cl.remote.Proto
 

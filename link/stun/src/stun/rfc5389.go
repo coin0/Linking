@@ -87,7 +87,7 @@ func genTransactionID() []byte {
 	return id
 }
 
-func decodeXorAddr(attr *attribute) (*address, error) {
+func decodeXorAddr(attr *attribute, transactionID []byte) (*address, error) {
 
 	fm := attr.value[1]
 
@@ -109,8 +109,22 @@ func decodeXorAddr(attr *attribute) (*address, error) {
 			Port: int(port),
 		}, nil
 	} else if fm == 0x02 {
-		// TODO ipv6
-		return nil, fmt.Errorf("peer could not be IPv6")
+		xip := binary.BigEndian.Uint32(attr.value[4:])
+		ip := xip ^ STUN_MSG_MAGIC_COOKIE
+		bytes := make([]byte, 16)
+		binary.BigEndian.PutUint32(bytes[0:], ip)
+		for i := 0; i < 12; i++ {
+			bytes[4+i] = attr.value[8+i] ^ transactionID[i]
+		}
+		var ip6 net.IP
+		if ip6 = bytes; ip6.To16() == nil {
+			return nil, fmt.Errorf("invalid IPv6")
+		}
+
+		return &address{
+			IP:   ip6,
+			Port: int(port),
+		}, nil
 	} else {
 		return nil, fmt.Errorf("invalid address")
 	}
@@ -349,7 +363,7 @@ func (this *message) getAttrXorMappedAddr() (addr *address, err error) {
 	if attr == nil {
 		return nil, fmt.Errorf("XOR mapped address not found")
 	}
-	return decodeXorAddr(attr)
+	return decodeXorAddr(attr, this.transactionID)
 }
 
 func (this *message) getAttrErrorCode() (code int, errStr string, err error) {
@@ -416,16 +430,18 @@ func (this *message) addAttrXorAddr(r *address, typeval uint16) int {
 
 	// x-port
 	port16 := uint16(r.Port)
-	xor := port16 ^ (STUN_MSG_MAGIC_COOKIE >> 16)
-	binary.BigEndian.PutUint16(attr.value[2:], xor)
+	xor1 := port16 ^ (STUN_MSG_MAGIC_COOKIE >> 16)
+	binary.BigEndian.PutUint16(attr.value[2:], xor1)
 
 	// x-address
+	addr32 := binary.BigEndian.Uint32(r.IP)
+	xor2 := addr32 ^ STUN_MSG_MAGIC_COOKIE
+	binary.BigEndian.PutUint32(attr.value[4:], xor2)
 	if r.IP.To4() == nil {
-		// TODO ipv6 x-address
-	} else {
-		addr32 := binary.BigEndian.Uint32(r.IP)
-		xor := addr32 ^ STUN_MSG_MAGIC_COOKIE
-		binary.BigEndian.PutUint32(attr.value[4:], xor)
+		// ipv6 x-address
+		for i := 0; i < 12; i++ {
+			attr.value[8+i] = r.IP[4+i] ^ this.transactionID[i]
+		}
 	}
 
 	this.attributes = append(this.attributes, attr)
@@ -642,7 +658,7 @@ func (this *message) print(title string) {
 		if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR ||
 			attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR ||
 			attr.typevalue == STUN_ATTR_XOR_PEER_ADDR {
-			addr, err := decodeXorAddr(attr)
+			addr, err := decodeXorAddr(attr, this.transactionID)
 			if err != nil {
 				return fmt.Sprintf("(%v)", err)
 			}
@@ -683,7 +699,7 @@ func (this *message) print4Log() string {
 			if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR ||
 				attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR ||
 				attr.typevalue == STUN_ATTR_XOR_PEER_ADDR {
-				addr, err := decodeXorAddr(attr)
+				addr, err := decodeXorAddr(attr, this.transactionID)
 				if err != nil {
 					return fmt.Sprintf("err=%v", err)
 				}

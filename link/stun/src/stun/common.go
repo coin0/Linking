@@ -56,7 +56,7 @@ type dummyConn struct {
 }
 
 var (
-	udpConn  *net.UDPConn
+	udp4Conn, udp6Conn *net.UDPConn
 	tcpConns = &tcpPool{
 		conns: map[string]net.Conn{},
 		lck:   &sync.Mutex{},
@@ -206,7 +206,14 @@ func ListenUDP(network, ip, port string) error {
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
-	udpConn, err = net.ListenUDP(network, udp)
+	var udpConn *net.UDPConn
+	if network == "udp4" {
+		udp4Conn, err = net.ListenUDP(network, udp)
+		udpConn = udp4Conn
+	} else {
+		udp6Conn, err = net.ListenUDP(network, udp)
+		udpConn = udp6Conn
+	}
 	if err != nil {
 		return fmt.Errorf("listen UDP: %s", err)
 	}
@@ -461,6 +468,13 @@ func sendUDP(addr *address, data []byte) error {
 		Port: addr.Port,
 	}
 
+	var udpConn *net.UDPConn
+	if addr.IP.To4() == nil {
+		udpConn = udp6Conn
+	} else {
+		udpConn = udp4Conn
+	}
+
 	if udpConn == nil {
 		return fmt.Errorf("connection not ready")
 	}
@@ -612,7 +626,11 @@ func (addr *address) String() string {
 	if len(addr.Host) > 0 {
 		url = addr.Host
 	} else {
-		url = addr.IP.String()
+		if addr.IP.To4() != nil {
+			url = addr.IP.String()
+		} else {
+			url = "[" + addr.IP.String() + "]"
+		}
 	}
 
 	return fmt.Sprintf("%s://%s:%d",
