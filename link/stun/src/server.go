@@ -21,9 +21,14 @@ var (
 )
 
 func init() {
-	conf.Args.ServiceIP = flag.String("sip", "127.0.0.1", "IP address for service")
+	// IPv4
+	conf.Args.ServiceIP = flag.String("sip", "0.0.0.0", "IP address for service")
 	conf.Args.RelayedIP = flag.String("rip", "", "IP address bound for relayed candidates")
 	conf.Args.RelayedInf = flag.String("rif", "", "first ipv4 of specified interface will be used for relay")
+	// IPv6
+	conf.Args.ServiceIPv6 = flag.String("sip6", "::", "IPv6 address for service")
+	conf.Args.RelayedIPv6 = flag.String("rip6", "", "IPv6 address bound for relayed candidates")
+	conf.Args.RelayedInf6 = flag.String("rif6", "", "first ipv6 of specified interface used for relay")
 	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
 	conf.Args.Cert = flag.String("cert", "server.crt", "public certificate for sec transport")
 	conf.Args.Key = flag.String("key", "server.key", "private key for sec transport")
@@ -43,16 +48,16 @@ func main() {
 		return
 	}
 
-	// override relayed IP address if necessary
-	if len(*conf.Args.RelayedInf) > 0 {
-		var err error
-		*conf.Args.RelayedIP, err = GetInfFirstIPv4(*conf.Args.RelayedInf)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-	} else if len(*conf.Args.RelayedIP) == 0 {
-		*conf.Args.RelayedIP = *conf.Args.ServiceIP
+	// get interface IP address for relay, this should override -rip and -rip6
+	// IPv4
+	if err := GetInfFirstIP(conf.Args.RelayedInf, conf.Args.RelayedIP, conf.Args.ServiceIP, true); err != nil {
+		fmt.Println("Get IPv4:", err)
+		os.Exit(1)
+	}
+	// IPv6
+	if err := GetInfFirstIP(conf.Args.RelayedInf6, conf.Args.RelayedIPv6, conf.Args.ServiceIPv6, false); err != nil {
+		fmt.Println("Get IPv6:", err)
+		os.Exit(1)
 	}
 
 	// open log file
@@ -64,19 +69,33 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	// start listening
-	wg.Add(2)
+	wg.Add(4)
 
+	// listen on UDP for IPv4 and IPv6 sockets
 	go func(wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			stun.ListenUDP(*conf.Args.ServiceIP, *conf.Args.Port)
+			stun.ListenUDP("udp4", *conf.Args.ServiceIP, *conf.Args.Port)
+		}
+	}(wg)
+	go func(wg *sync.WaitGroup) {
+		defer wg.Done()
+		for {
+			stun.ListenUDP("udp6", "[" + *conf.Args.ServiceIPv6 + "]", *conf.Args.Port)
 		}
 	}(wg)
 
+	// listen on TCP or TLS for IPv4 and IPv6 sockets
 	go func (wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
-			stun.ListenTCP(*conf.Args.ServiceIP, *conf.Args.Port)
+			stun.ListenTCP("tcp4", *conf.Args.ServiceIP, *conf.Args.Port)
+		}
+	}(wg)
+	go func (wg *sync.WaitGroup) {
+		defer wg.Done()
+		for {
+			stun.ListenTCP("tcp6", "[" + *conf.Args.ServiceIPv6 + "]", *conf.Args.Port)
 		}
 	}(wg)
 
@@ -91,25 +110,45 @@ func main() {
 	return
 }
 
-func GetInfFirstIPv4(inf string) (addr string, err error) {
+func GetInfFirstIP(inf, relayIP, servIP *string, ipv4 bool) error {
 
-	ief, err := net.InterfaceByName(inf)
-	if err != nil {
-		return "", fmt.Errorf("interface %s: %s", inf, err)
-	}
+	// get first valid IPv4 / IPv6 address of specified interface
+	getIP := func(inf string, needIPv4 bool) (addr string, err error) {
 
-	addrs, err := ief.Addrs()
-	if err != nil {
-		return "", fmt.Errorf("interface %s: %s", inf, err)
-	}
-
-	for _, addr := range addrs {
-		if ipv4 := addr.(*net.IPNet).IP.To4(); ipv4 != nil {
-			return ipv4.String(), nil
+		ief, err := net.InterfaceByName(inf)
+		if err != nil {
+			return "", fmt.Errorf("interface %s: %s", inf, err)
 		}
+
+		addrs, err := ief.Addrs()
+		if err != nil {
+			return "", fmt.Errorf("interface %s: %s", inf, err)
+		}
+
+		for _, addr := range addrs {
+			if ip := addr.(*net.IPNet).IP.To4(); ip != nil && needIPv4 {
+				return ip.String(), nil
+			} else if ip == nil && !needIPv4 {
+				return ip.To16().String(), nil
+			}
+		}
+
+		return "", fmt.Errorf("interface %s: no available address", inf)
 	}
 
-	return "", fmt.Errorf("interface %s: no IPv4 address bound", inf)
+	// override relay arguments if interface name is specified
+	if len(*inf) > 0 {
+		var err error
+		*relayIP, err = getIP(*inf, ipv4)
+		if err != nil {
+			return err
+		}
+	} else if len(*relayIP) == 0 {
+		// use same IP as service address if no relayed IP specified
+		*relayIP = *servIP
+	}
+
+	return nil
 }
 
 func loadUsers() {

@@ -171,7 +171,7 @@ func (c *dummyConn) SetWriteDeadline(t time.Time) error {
 
 // -------------------------------------------------------------------------------------------------
 
-func ListenTCP(ip, port string) error {
+func ListenTCP(network, ip, port string) error {
 
 	// load cert and key files from filesystem
 	cert, err := tls.LoadX509KeyPair(*conf.Args.Cert, *conf.Args.Key)
@@ -180,11 +180,11 @@ func ListenTCP(ip, port string) error {
 	}
 	tlsconf := &tls.Config{ Certificates: []tls.Certificate{cert} }
 
-	tcp, err := net.ResolveTCPAddr("tcp4", ip + ":" + port)
+	tcp, err := net.ResolveTCPAddr(network, ip + ":" + port)
 	if err != nil {
 		return fmt.Errorf("resolve TCP: %s", err)
 	}
-	l, err := net.ListenTCP("tcp", tcp)
+	l, err := net.ListenTCP(network, tcp)
 	if err != nil {
 		return fmt.Errorf("listen TCP: %s", err)
 	}
@@ -200,13 +200,13 @@ func ListenTCP(ip, port string) error {
 	}
 }
 
-func ListenUDP(ip, port string) error {
+func ListenUDP(network, ip, port string) error {
 
-	udp, err := net.ResolveUDPAddr("udp", ip + ":" + port)
+	udp, err := net.ResolveUDPAddr(network, ip + ":" + port)
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
-	udpConn, err = net.ListenUDP("udp", udp)
+	udpConn, err = net.ListenUDP(network, udp)
 	if err != nil {
 		return fmt.Errorf("listen UDP: %s", err)
 	}
