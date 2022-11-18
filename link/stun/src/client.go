@@ -43,17 +43,28 @@ func parseAddr(addr string) (proto string, ip string, port int) {
 
 	str := strings.Split(addr, "://")
 	if len(str) != 2 {
-		fmt.Println("address format mismatch, try [udp/tcp/tls]://ip:port")
+		fmt.Println("address format mismatch, try udp/tcp/tls://ipv4:port or udp/tcp/tls://[ipv6]:port")
 		os.Exit(1)
 	}
 	proto = str[0]
 	str = strings.Split(str[1], ":")
-	if len(str) != 2 {
-		fmt.Println("address format mismatch, try [udp/tcp/tls]://ip:port")
+	if len(str) < 2 {
+		fmt.Println("address format mismatch, try udp/tcp/tls://ipv4:port or udp/tcp/tls://[ipv6]:port")
+		os.Exit(1)
+	} else if len(str) == 2 {
+		// IPv4 address
+		ip = str[0]
+	} else {
+		// IPv6 address -> [a:b:c:d::]
+		ip = strings.Join(str[:len(str)-1], ":")
+		// remove square brakets -> a:b:c:d::
+		ip = ip[1:len(ip)-1]
+	}
+	var err error
+	if port, err = strconv.Atoi(str[len(str)-1]); err != nil {
+		fmt.Println("not a valid port number")
 		os.Exit(1)
 	}
-	ip = str[0]
-	port, _ = strconv.Atoi(str[1])
 
 	return
 }
