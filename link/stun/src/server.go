@@ -59,6 +59,10 @@ func main() {
 		fmt.Println("Get IPv6:", err)
 		os.Exit(1)
 	}
+	if len(*conf.Args.ServiceIP) > 0 { fmt.Printf("service IP %s bound\n", *conf.Args.ServiceIP) }
+	if len(*conf.Args.ServiceIPv6) > 0 { fmt.Printf("service IP %s bound\n", *conf.Args.ServiceIPv6) }
+	if len(*conf.Args.RelayedIP) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIP) }
+	if len(*conf.Args.RelayedIPv6) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIPv6) }
 
 	// open log file
 	SetLog(*conf.Args.Log)
@@ -129,7 +133,7 @@ func GetInfFirstIP(inf, relayIP, servIP *string, ipv4 bool) error {
 			if ip := addr.(*net.IPNet).IP.To4(); ip != nil && needIPv4 {
 				return ip.String(), nil
 			} else if ip == nil && !needIPv4 {
-				return ip.To16().String(), nil
+				return addr.(*net.IPNet).IP.To16().String(), nil
 			}
 		}
 
@@ -143,9 +147,6 @@ func GetInfFirstIP(inf, relayIP, servIP *string, ipv4 bool) error {
 		if err != nil {
 			return err
 		}
-	} else if len(*relayIP) == 0 {
-		// use same IP as service address if no relayed IP specified
-		*relayIP = *servIP
 	}
 
 	return nil

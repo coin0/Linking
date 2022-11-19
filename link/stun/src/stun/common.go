@@ -22,6 +22,11 @@ const (
 )
 
 const (
+	ADDR_FAMILY_IPV4 = 0x1
+	ADDR_FAMILY_IPV6 = 0x2
+)
+
+const (
 	TCP_MAX_TIMEOUT    = 300
 	// tcp buffer size in user space
 	TCP_MAX_BUF_SIZE   = 1024 * 1024 * 3 // 3MB
@@ -612,6 +617,7 @@ func parseAttributeType(db uint16) string {
 	case STUN_ATTR_PASSWORD_ALGORITHMS: return "PASSWORD-ALGORITHMS"
 	case STUN_ATTR_ALTERNATE_DOMAIN: return "ALTERNATE-DOMAIN"
 	case STUN_ATTR_CONNECTION_ID: return "CONNECTION-ID"
+	case STUN_ATTR_REQUESTED_ADDRESS_FAMILY: return "REQUESTED_ADDRESS_FAMILY"
 	}
 	return "RESERVED"
 }

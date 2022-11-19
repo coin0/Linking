@@ -406,10 +406,15 @@ func exec(input string) (err error) {
 		client.EvenPort = true
 		client.ReservToken = make([]byte, 8)
 		transport = "udp"
+		ipfam := "4"
 		if get(input, 1) == "tcp" || get(input, 1) == "t" {
-			transport = "tcp"
+			transport = "tcp";
+		} else if get(input, 1) == "tcp6" || get(input, 1) == "t6" {
+			transport = "tcp"; ipfam = "6"
+		} else if get(input, 1) == "udp6" || get(input, 1) == "u6" {
+			transport = "udp"; ipfam = "6"
 		}
-		err = client.Alloc(transport)
+		err = client.Alloc(transport + ipfam)
 	case 'r':
 		if len(strings.Split(input, " ")) != 2 { return fmt.Errorf("arguments mismatch") }
 		t, _ := strconv.Atoi(get(input, 1))

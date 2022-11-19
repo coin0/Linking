@@ -15,7 +15,7 @@ const (
 
 // -------------------------------------------------------------------------------------------------
 
-func (this *message) addAttrReqAddrFamily(ipv4 bool) int {
+func (this *message) addAttrReqAddrFamily(fm byte) int {
 
 //    0                   1                   2                   3
 //    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -29,13 +29,7 @@ func (this *message) addAttrReqAddrFamily(ipv4 bool) int {
 		typevalue:  STUN_ATTR_REQUESTED_ADDRESS_FAMILY,
 		typename:   parseAttributeType(STUN_ATTR_REQUESTED_ADDRESS_FAMILY),
 		length:     4,
-		value:      []byte{ 0, 0, 0, 0 },
-	}
-
-	if ipv4 {
-		attr.value[0] = 0x01
-	} else {
-		attr.value[0] = 0x02
+		value:      []byte{ fm, 0, 0, 0 },
 	}
 
 	this.attributes = append(this.attributes, attr)

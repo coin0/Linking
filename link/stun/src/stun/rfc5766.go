@@ -188,6 +188,9 @@ type stunclient struct {
 	// relay transport type
 	transport   byte
 
+	// relay address family type
+	addrFamily  byte
+
 	// channels
 	channels    map[string]uint16
 
@@ -616,12 +619,16 @@ func newInitAllocationRequest(proto byte) (*message, error) {
 	return msg, nil
 }
 
-func newSubAllocationRequest(proto byte, username, realm, nonce string) (*message, error) {
+func newSubAllocationRequest(proto, ipfam byte, username, realm, nonce string) (*message, error) {
 
 	msg, _ := newInitAllocationRequest(proto)
 	msg.length += msg.addAttrUsername(username)
 	msg.length += msg.addAttrRealm(realm)
 	msg.length += msg.addAttrNonce(nonce)
+
+	if ipfam == ADDR_FAMILY_IPV6 {
+		msg.length += msg.addAttrReqAddrFamily(ADDR_FAMILY_IPV6)
+	}
 
 	return msg, nil // this is not done yet, need optional attrs + integrity attr
 }
@@ -961,6 +968,10 @@ func (alloc *allocation) save() (int, error) {
 	// check if requested address family is available and save relayed IP address
 	if alloc.ipv4Relay {
 		alloc.relay.IP = net.ParseIP(*conf.Args.RelayedIP)
+		if alloc.relay.IP != nil {
+			// make sure it is in the form of IPv4
+			alloc.relay.IP = alloc.relay.IP.To4()
+		}
 	} else {
 		alloc.relay.IP = net.ParseIP(*conf.Args.RelayedIPv6)
 	}
@@ -1824,14 +1835,15 @@ func (cl *stunclient) Bye() error {
 func (cl *stunclient) Alloc(relaytype string) error {
 
 	// specify relay type
-	transport := byte(PROTO_NUM_UDP)
-	if relaytype == "tcp" {
-		transport = PROTO_NUM_TCP
+	switch relaytype {
+	case "tcp4": cl.transport = PROTO_NUM_TCP; cl.addrFamily = ADDR_FAMILY_IPV4
+	case "tcp6": cl.transport = PROTO_NUM_TCP; cl.addrFamily = ADDR_FAMILY_IPV6
+	case "udp4": cl.transport = PROTO_NUM_UDP; cl.addrFamily = ADDR_FAMILY_IPV4
+	case "udp6": cl.transport = PROTO_NUM_UDP; cl.addrFamily = ADDR_FAMILY_IPV6
 	}
-	cl.transport = transport
 
 	// create initial alloc request
-	req, _ := newInitAllocationRequest(transport)
+	req, _ := newInitAllocationRequest(cl.transport)
 	if cl.DebugOn { req.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 	Info("client > server(%s): %s", cl.remote, req.print4Log())
 	buf, err := cl.transmitMessage(req)
@@ -1867,7 +1879,7 @@ func (cl *stunclient) Alloc(relaytype string) error {
 	}
 
 	// subsequent request
-	req, _ = newSubAllocationRequest(transport, cl.Username, cl.realm, cl.nonce)
+	req, _ = newSubAllocationRequest(cl.transport, cl.addrFamily, cl.Username, cl.realm, cl.nonce)
 	if cl.Lifetime != 0 {
 		req.length += req.addAttrLifetime(cl.Lifetime)
 	}
