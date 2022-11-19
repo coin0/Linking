@@ -655,26 +655,32 @@ func (this *message) print(title string) {
 
 	// show extra info like decoded xor addresses
 	showExtra := func(attr *attribute) string {
-		if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR ||
-			attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR ||
-			attr.typevalue == STUN_ATTR_XOR_PEER_ADDR {
+		switch attr.typevalue {
+		case STUN_ATTR_XOR_MAPPED_ADDR,STUN_ATTR_XOR_RELAYED_ADDR, STUN_ATTR_XOR_PEER_ADDR:
 			addr, err := decodeXorAddr(attr, this.transactionID)
 			if err != nil {
 				return fmt.Sprintf("(%v)", err)
 			}
 			return fmt.Sprintf("(%s:%d)", addr.IP, addr.Port)
-		} else if attr.typevalue == STUN_ATTR_ERROR_CODE {
+		case STUN_ATTR_ERROR_CODE:
 			code, errStr, err := decodeErrorCode(attr)
 			if err != nil {
 				return fmt.Sprintf("(%v)", err)
 			}
 			return fmt.Sprintf("(status=%d, %s)", code, errStr)
-		} else if attr.typevalue == STUN_ATTR_NONCE || attr.typevalue == STUN_ATTR_REALM ||
-			attr.typevalue == STUN_ATTR_USERNAME {
+		case STUN_ATTR_NONCE, STUN_ATTR_REALM, STUN_ATTR_USERNAME:
 			return fmt.Sprintf("(%s)", decodeStringValue(attr))
-		} else if attr.typevalue == STUN_ATTR_LIFETIME {
+		case STUN_ATTR_LIFETIME:
 			return fmt.Sprintf("(%d seconds)", binary.BigEndian.Uint32(attr.value))
-		} else {
+		case STUN_ATTR_CONNECTION_ID:
+			return fmt.Sprintf("(%d)", binary.BigEndian.Uint32(attr.value))
+		case STUN_ATTR_REQUESTED_TRAN:
+			return fmt.Sprintf("(%s)", parseTransportType(attr.value[0]))
+		case STUN_ATTR_CHANNEL_NUMBER:
+			return fmt.Sprintf("(%d)", binary.BigEndian.Uint16(attr.value))
+		case STUN_ATTR_REQUESTED_ADDRESS_FAMILY:
+			return fmt.Sprintf("(%s)", parseAddrFamilyType(attr.value[0]))
+		default:
 			return ""
 		}
 	}
@@ -696,29 +702,36 @@ func (this *message) print4Log() string {
 	for _, v := range this.attributes {
 		str += fmt.Sprintf("%s(%dB %s) ", v.typename, v.length, func(attr *attribute) string {
 
-			if attr.typevalue == STUN_ATTR_XOR_MAPPED_ADDR ||
-				attr.typevalue == STUN_ATTR_XOR_RELAYED_ADDR ||
-				attr.typevalue == STUN_ATTR_XOR_PEER_ADDR {
+			switch attr.typevalue {
+			case STUN_ATTR_XOR_MAPPED_ADDR, STUN_ATTR_XOR_RELAYED_ADDR, STUN_ATTR_XOR_PEER_ADDR:
 				addr, err := decodeXorAddr(attr, this.transactionID)
 				if err != nil {
 					return fmt.Sprintf("err=%v", err)
 				}
 				return fmt.Sprintf("addr=%s:%d", addr.IP, addr.Port)
-			} else if attr.typevalue == STUN_ATTR_ERROR_CODE {
+			case STUN_ATTR_ERROR_CODE:
 				code, errStr, err := decodeErrorCode(attr)
 				if err != nil {
 					return fmt.Sprintf("err=%v", attr.typename, err)
 				}
 				return fmt.Sprintf("reason=%d %s", code, errStr)
-			} else if attr.typevalue == STUN_ATTR_NONCE {
+			case STUN_ATTR_NONCE:
 				return fmt.Sprintf("nonce=%s", decodeStringValue(attr))
-			} else if attr.typevalue == STUN_ATTR_REALM {
+			case STUN_ATTR_REALM:
 				return fmt.Sprintf("realm=%s", decodeStringValue(attr))
-			} else if attr.typevalue == STUN_ATTR_USERNAME {
+			case STUN_ATTR_USERNAME:
 				return fmt.Sprintf("user=%s", decodeStringValue(attr))
-			} else if attr.typevalue == STUN_ATTR_LIFETIME {
+			case STUN_ATTR_LIFETIME:
 				return fmt.Sprintf("t=%d", binary.BigEndian.Uint32(attr.value))
-			} else {
+			case STUN_ATTR_CONNECTION_ID:
+				return fmt.Sprintf("id=%d", binary.BigEndian.Uint32(attr.value))
+			case STUN_ATTR_REQUESTED_TRAN:
+				return fmt.Sprintf("trans=%s", parseTransportType(attr.value[0]))
+			case STUN_ATTR_CHANNEL_NUMBER:
+				return fmt.Sprintf("no=%d", binary.BigEndian.Uint16(attr.value))
+			case STUN_ATTR_REQUESTED_ADDRESS_FAMILY:
+				return fmt.Sprintf("fm=%s", parseAddrFamilyType(attr.value[0]))
+			default:
 				return "-"
 			}
 		}(v))

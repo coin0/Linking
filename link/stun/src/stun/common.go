@@ -622,6 +622,24 @@ func parseAttributeType(db uint16) string {
 	return "RESERVED"
 }
 
+func parseTransportType(b byte) string {
+
+	switch b {
+	case PROTO_NUM_TCP: return "tcp"
+	case PROTO_NUM_UDP: return "udp"
+	}
+	return fmt.Sprintf("unknown %s", b)
+}
+
+func parseAddrFamilyType(b byte) string {
+
+	switch b {
+	case ADDR_FAMILY_IPV4: return "ipv4"
+	case ADDR_FAMILY_IPV6: return "ipv6"
+	}
+	return fmt.Sprintf("unknown %s", b)
+}
+
 // -------------------------------------------------------------------------------------------------
 
 func (addr *address) String() string {
