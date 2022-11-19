@@ -206,18 +206,16 @@ func ListenUDP(network, ip, port string) error {
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
-	var udpConn *net.UDPConn
-	if network == "udp4" {
-		udp4Conn, err = net.ListenUDP(network, udp)
-		udpConn = udp4Conn
-	} else {
-		udp6Conn, err = net.ListenUDP(network, udp)
-		udpConn = udp6Conn
-	}
+	udpConn, err := net.ListenUDP(network, udp)
 	if err != nil {
 		return fmt.Errorf("listen UDP: %s", err)
 	}
 	defer udpConn.Close()
+	if network == "udp4" {
+		udp4Conn = udpConn
+	} else {
+		udp6Conn = udpConn
+	}
 
 	// set UDP socket options
 	udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)

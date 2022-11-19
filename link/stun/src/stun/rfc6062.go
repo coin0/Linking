@@ -319,8 +319,19 @@ func (this *message) isConnAttemptIndication() bool {
 // intiate an outgoing connection to the remote peer
 func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 
+	// concatenate IPv4 or IPv6 relayed transport address string
 	relay := &svr.allocRef.relay
-	laddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", relay.IP, relay.Port))
+	var network, relayAddr, peerAddr string
+	if svr.allocRef.ipv4Relay {
+		network = "tcp4"
+		relayAddr = fmt.Sprintf("%s:%d", relay.IP, relay.Port)
+		peerAddr = fmt.Sprintf("%s:%d", peer.IP, peer.Port)
+	} else {
+		network = "tcp6"
+		relayAddr = fmt.Sprintf("[%s]:%d", relay.IP, relay.Port)
+		peerAddr = fmt.Sprintf("[%s]:%d", peer.IP, peer.Port)
+	}
+	laddr, err := net.ResolveTCPAddr(network, relayAddr)
 	if err != nil {
 		return 0, fmt.Errorf("invalid relayed address: %s", err)
 	}
@@ -333,7 +344,7 @@ func (svr *relayserver) connectToPeerTCP(peer *address) (uint32, error) {
 	}
 
 	// start dialing the peer
-	conn, err := d.Dial("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
+	conn, err := d.Dial(network, peerAddr)
 	if err != nil {
 		return 0, fmt.Errorf("connect peer: %s", err)
 	}
@@ -503,7 +514,7 @@ func (svr *relayserver) sendToPeerTCP(info *connInfo) {
 	}
 }
 
-func (svr *relayserver) listenTCP(addr string) (*dummyConn, error) {
+func (svr *relayserver) listenTCP(network, addr string) (*dummyConn, error) {
 
 	// TCP relayed address must set port and addr reuse since outgoing connection also require
 	// the same local address endpoint
@@ -511,7 +522,7 @@ func (svr *relayserver) listenTCP(addr string) (*dummyConn, error) {
 		Control: reuse.Control,
 	}
 
-	l, err := cfg.Listen(context.Background(), "tcp", addr)
+	l, err := cfg.Listen(context.Background(), network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen TCP: %s", err)
 	}

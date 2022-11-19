@@ -121,6 +121,9 @@ type allocation struct {
 	// client ip and port info
 	source      address
 
+	// relayed transport address family
+	ipv4Relay   bool
+
 	// relayed transport address
 	relay       address
 
@@ -316,6 +319,11 @@ func (this *message) generalRequestCheck(r *address) (*allocation, *message) {
 	if alloc.nonce != nonce {
 		msg, _ := this.replyUnauth(STUN_ERR_STALE_NONCE, alloc.nonce, "NONCE is expired")
 		return nil, msg
+	}
+
+	// RFC6156 check requested address family
+	if code, err := this.checkReqAddrFamily(alloc); err != nil {
+		return nil, this.newErrorMessage(code, err.Error())
 	}
 
 	return alloc, nil
@@ -571,6 +579,9 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 
 	// 8. TODO handle ALTERNATE attribute
 
+	// 9. RFC6156 - get requested transport address family
+	alloc.ipv4Relay, _ = this.getAttrReqAddrFamily()
+
 	// set longterm-credential username
 	alloc.username = username
 
@@ -586,9 +597,9 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	alloc.refresh(lifetime)
 
 	// save allocation and reply to the client
-	err = alloc.save()
+	code, err = alloc.save()
 	if err != nil {
-		return this.newErrorMessage(STUN_ERR_SERVER_ERROR, "alloc failed: " + err.Error()), nil
+		return this.newErrorMessage(code, "relayed transport not created: " + err.Error()), nil
 	}
 	return this.replyAllocationRequest(alloc)
 }
@@ -634,6 +645,13 @@ func (this *message) checkAllocation(r *address) (byte, int, error) {
 		} else if _, err = this.getAttrReservToken(); err == nil {
 			return 0, STUN_ERR_BAD_REQUEST, fmt.Errorf("RESERVATION-TOKEN not supported")
 		}
+	}
+
+	// https://www.rfc-editor.org/rfc/rfc6156#section-4.1
+	_, err1 := this.getAttrReservToken()
+	_, err2 := this.getAttrReqAddrFamily()
+	if err1 == nil && err2 == nil {
+		return 0, STUN_ERR_BAD_REQUEST, fmt.Errorf("RESERVATION-TOKEN and REQUESTED_ADDRESS_FAMILY cannot co-exist")
 	}
 
 	return tran[0], 0, nil
@@ -933,11 +951,21 @@ func newAllocation(r *address) (*allocation, error) {
 	}, nil
 }
 
-func (alloc *allocation) save() error {
+func (alloc *allocation) save() (int, error) {
 
 	// insert allocation struct to global pool
 	if ok := alloc.addToPool(); !ok {
-		return  fmt.Errorf("already allocated")
+		return STUN_ERR_BAD_REQUEST, fmt.Errorf("already allocated")
+	}
+
+	// check if requested address family is available and save relayed IP address
+	if alloc.ipv4Relay {
+		alloc.relay.IP = net.ParseIP(*conf.Args.RelayedIP)
+	} else {
+		alloc.relay.IP = net.ParseIP(*conf.Args.RelayedIPv6)
+	}
+	if alloc.relay.IP == nil {
+		return STUN_ERR_ADDR_FAMILY_NOT_SUPPORTED, fmt.Errorf("address family not available")
 	}
 
 	// create relay service
@@ -945,19 +973,18 @@ func (alloc *allocation) save() error {
 	port, err := alloc.server.bind()
 	if err != nil {
 		alloc.removeFromPool()
-		return err
+		return STUN_ERR_SERVER_ERROR, err
 	}
 
-	// save relay address
-	alloc.relay.IP = net.ParseIP(*conf.Args.RelayedIP).To4() // use default IP in args
+	// save relayed port
 	alloc.relay.Port = port
 
-	// spawn a thread to listen UDP channel
+	// spawn a thread to listen on UDP/TCP
 	if err := alloc.server.spawn(); err != nil {
-		return err
+		return STUN_ERR_SERVER_ERROR, err
 	}
 
-	return nil
+	return 0, nil
 }
 
 func (alloc *allocation) free() error {
@@ -1145,18 +1172,25 @@ func (svr *relayserver) bind() (p int, _ error) {
 	for i := 0; i < 40; i++ {
 
 		p = allocPool.nextPort(svr.allocRef.transport)
-		addr := fmt.Sprintf("%s:%d", *conf.Args.RelayedIP, p)
+		// IPv4 relay by default
+		addr := fmt.Sprintf("%s:%d", svr.allocRef.relay.IP, p)
+		network := "4"
+		if !svr.allocRef.ipv4Relay {
+			// IPv6 relay is specified
+			addr = fmt.Sprintf("[%s]:%d", svr.allocRef.relay.IP, p)
+			network = "6"
+		}
 
 		// start listening on relayed address
 		switch svr.allocRef.transport {
 		case PROTO_NUM_TCP:
-			if tcp, err := svr.listenTCP(addr); err != nil {
+			if tcp, err := svr.listenTCP("tcp" + network, addr); err != nil {
 				continue
 			} else {
 				svr.conn = tcp
 			}
 		case PROTO_NUM_UDP:
-			if udp, err := svr.listenUDP(addr); err != nil {
+			if udp, err := svr.listenUDP("udp" + network, addr); err != nil {
 				continue
 			} else {
 				svr.conn = udp
@@ -1284,14 +1318,14 @@ func (svr *relayserver) recvFromPeerUDP(ech chan error) {
 	}
 }
 
-func (svr *relayserver) listenUDP(addr string) (*net.UDPConn, error) {
+func (svr *relayserver) listenUDP(network, addr string) (*net.UDPConn, error) {
 
-	udp, err := net.ResolveUDPAddr("udp", addr)
+	udp, err := net.ResolveUDPAddr(network, addr)
 	if err != nil {
 		return nil, fmt.Errorf("resolve UDP: %s", err)
 	}
 
-	conn, err := net.ListenUDP("udp", udp)
+	conn, err := net.ListenUDP(network, udp)
 	if err != nil {
 		return nil, fmt.Errorf("listen UDP: %s", err)
 	}
