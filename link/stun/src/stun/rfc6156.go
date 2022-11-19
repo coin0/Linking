@@ -57,12 +57,13 @@ func (this *message) getAttrReqAddrFamily() (bool, error) {
 
 func (this *message) checkReqAddrFamily(alloc *allocation) (int, error) {
 
+	// check refresh and other general requests https://datatracker.ietf.org/doc/html/rfc6156#section-5.2
+	if ipv4, err := this.getAttrReqAddrFamily(); err == nil && ipv4 != alloc.ipv4Relay {
+		return STUN_ERR_PEER_ADDR_FAMILY_MISMATCH, fmt.Errorf("alloc address family mismatch")
+	}
+
 	switch this.method {
 	case STUN_MSG_METHOD_REFRESH:
-		// check refresh https://datatracker.ietf.org/doc/html/rfc6156#section-5.2
-		if ipv4, err := this.getAttrReqAddrFamily(); err == nil && ipv4 != alloc.ipv4Relay {
-			return STUN_ERR_PEER_ADDR_FAMILY_MISMATCH, fmt.Errorf("alloc address family mismatch")
-		}
 	case STUN_MSG_METHOD_CREATE_PERM:
 		// check permission https://datatracker.ietf.org/doc/html/rfc6156#section-6.2
 		addrs, err := this.getAttrXorPeerAddresses()
