@@ -415,6 +415,7 @@ func (this *message) addAttrXorAddr(r *address, typeval uint16) int {
 	if r.IP.To4() == nil {
 		attr.value = make([]byte, 20)
 	} else {
+		r.IP = r.IP.To4() // make sure it's not IPv6 presentation
 		attr.value = make([]byte, 8)
 	}
 	attr.length = len(attr.value)
