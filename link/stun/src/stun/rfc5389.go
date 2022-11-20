@@ -661,7 +661,7 @@ func (this *message) print(title string) {
 			if err != nil {
 				return fmt.Sprintf("(%v)", err)
 			}
-			return fmt.Sprintf("(%s:%d)", addr.IP, addr.Port)
+			return fmt.Sprintf("(%s)", addr)
 		case STUN_ATTR_ERROR_CODE:
 			code, errStr, err := decodeErrorCode(attr)
 			if err != nil {
@@ -708,7 +708,7 @@ func (this *message) print4Log() string {
 				if err != nil {
 					return fmt.Sprintf("err=%v", err)
 				}
-				return fmt.Sprintf("addr=%s:%d", addr.IP, addr.Port)
+				return fmt.Sprintf("addr=%s", addr)
 			case STUN_ATTR_ERROR_CODE:
 				code, errStr, err := decodeErrorCode(attr)
 				if err != nil {

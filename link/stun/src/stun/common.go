@@ -16,9 +16,10 @@ const (
 )
 
 const (
-	NET_UDP = 0x0
-	NET_TCP = 0x1
-	NET_TLS = 0x2
+	NET_TBD = 0x0
+	NET_UDP = 0x3
+	NET_TCP = 0x4
+	NET_TLS = 0x5
 )
 
 const (
@@ -653,6 +654,10 @@ func (addr *address) String() string {
 		} else {
 			url = "[" + addr.IP.String() + "]"
 		}
+	}
+
+	if addr.Proto == NET_TBD {
+		return fmt.Sprintf("%s:%d", url, addr.Port)
 	}
 
 	return fmt.Sprintf("%s://%s:%d",

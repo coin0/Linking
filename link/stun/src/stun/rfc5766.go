@@ -2012,7 +2012,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 						IP: net.ParseIP(ip),
 						// any port is ok, https://tools.ietf.org/html/rfc5766#section-9.1
 						Port: 0,
-						Proto: NET_UDP,
+						Proto: NET_TBD,
 					})
 				}
 				return addrs
