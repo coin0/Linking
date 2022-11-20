@@ -94,7 +94,7 @@ func decodeXorAddr(attr *attribute, transactionID []byte) (*address, error) {
 	xport := binary.BigEndian.Uint16(attr.value[2:])
 	port := xport ^ (STUN_MSG_MAGIC_COOKIE >> 16)
 
-	if fm == 0x01 {
+	if fm == ADDR_FAMILY_IPV4 {
 		xip := binary.BigEndian.Uint32(attr.value[4:])
 		ip := xip ^ STUN_MSG_MAGIC_COOKIE
 		bytes := make([]byte, 4)
@@ -108,7 +108,7 @@ func decodeXorAddr(attr *attribute, transactionID []byte) (*address, error) {
 			IP:   ip4,
 			Port: int(port),
 		}, nil
-	} else if fm == 0x02 {
+	} else if fm == ADDR_FAMILY_IPV6 {
 		xip := binary.BigEndian.Uint32(attr.value[4:])
 		ip := xip ^ STUN_MSG_MAGIC_COOKIE
 		bytes := make([]byte, 16)
@@ -424,9 +424,10 @@ func (this *message) addAttrXorAddr(r *address, typeval uint16) int {
 	attr.value[0] = 0x00
 
 	// family
-	attr.value[1] = 0x01
-	if r.IP.To4() == nil {
-		attr.value[1] = 0x02
+	if r.IP.To4() != nil {
+		attr.value[1] = ADDR_FAMILY_IPV4
+	} else {
+		attr.value[1] = ADDR_FAMILY_IPV6
 	}
 
 	// x-port

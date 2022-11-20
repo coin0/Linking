@@ -47,7 +47,7 @@ func (this *message) getAttrReqAddrFamily() (bool, error) {
 		return true, fmt.Errorf("IPv4 by default")
 	}
 
-	if attr.value[0] == 0x01 {
+	if attr.value[0] == ADDR_FAMILY_IPV4 {
 		return true, nil
 	}
 	return false, nil
