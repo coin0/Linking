@@ -1999,7 +1999,7 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 				addrs := []*address{}
 				for _, ip := range ipList {
 					addrs = append(addrs, &address{
-						IP: net.ParseIP(ip).To4(),
+						IP: net.ParseIP(ip),
 						// any port is ok, https://tools.ietf.org/html/rfc5766#section-9.1
 						Port: 0,
 						Proto: NET_UDP,
@@ -2055,7 +2055,7 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 		transport = NET_TCP
 	}
 	peer := &address{
-		IP: net.ParseIP(ip).To4(),
+		IP: net.ParseIP(ip),
 		Port: port,
 		Proto: transport,
 	}
@@ -2101,7 +2101,7 @@ func (cl *stunclient) Send(ip string, port int, data []byte) error {
 		} else {
 			msg, _ := newSendIndication(
 				&address{
-					IP: net.ParseIP(ip).To4(),
+					IP: net.ParseIP(ip),
 					Port: port,
 				},
 				data[i:],
@@ -2223,7 +2223,7 @@ func (cl *stunclient) getChan(peer *address, needRenew bool) uint16 {
 func (cl *stunclient) BindChan(ip string, port int) error {
 
 	peer := &address{
-		IP: net.ParseIP(ip).To4(),
+		IP: net.ParseIP(ip),
 		Port: port,
 		Proto: NET_UDP,
 	}

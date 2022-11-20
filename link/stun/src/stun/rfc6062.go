@@ -562,7 +562,7 @@ func (cl *stunclient) Connect(ip string, port int) error {
 
 	// peer should be a remote TCP endpoint
 	peer := &address{
-		IP: net.ParseIP(ip).To4(),
+		IP: net.ParseIP(ip),
 		Port: port,
 		Proto: NET_TCP,
 	}
