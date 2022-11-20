@@ -1599,10 +1599,15 @@ func (cl *stunclient) connectTCP(connType byte) error {
 
 	host := cl.remote.IP.String()
 	if cl.remote.IP == nil {
+		// connect TURN by hostname
 		host = cl.remote.Host
-	} else if cl.remote.IP.To4() == nil {
-		// IPv6
-		host = "[" + host + "]"
+	} else {
+		// connect TURN by IP address
+		if cl.remote.IP.To4() == nil {
+			// IPv6
+			host = "[" + host + "]"
+		}
+		cl.remote.Host = "" // clear host
 	}
 	raddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", host, cl.remote.Port))
 	if err != nil {
@@ -1643,10 +1648,15 @@ func (cl *stunclient) connectUDP() error {
 	// dial UDP to get initial udp connection
 	host := cl.remote.IP.String()
 	if cl.remote.IP == nil {
+		// connect TURN by hostname
 		host = cl.remote.Host
-	} else if cl.remote.IP.To4() == nil {
-		// IPv6
-		host = "[" + host + "]"
+	} else {
+		// connect TURN by IP
+		if cl.remote.IP.To4() == nil {
+			// IPv6
+			host = "[" + host + "]"
+		}
+		cl.remote.Host = "" // clear host
 	}
 	raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, cl.remote.Port))
 	if err != nil {

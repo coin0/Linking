@@ -13,6 +13,7 @@ import(
 	"util/ping"
 	. "util/log"
 	"runtime/debug"
+	"net"
 )
 
 var (
@@ -69,19 +70,30 @@ func parseAddr(addr string) (proto string, ip string, port int) {
 	return
 }
 
+func verboseIP(ipstr string) string {
+
+	if ip := net.ParseIP(ipstr); ip != nil {
+		if ipv4 := ip.To4(); ipv4 == nil {
+			return "[" + ip.String()  + "]"
+		}
+		return ip.String()
+	}
+	return ipstr
+}
+
 func usage() {
 
 	serverAddr := fmt.Sprintf("%s://%s:%d",
 		conf.ClientArgs.Proto,
-		conf.ClientArgs.ServerIP,
+		verboseIP(conf.ClientArgs.ServerIP),
 		conf.ClientArgs.ServerPort,
 	)
 
 	fmt.Println("******************************************")
 	fmt.Println("Simple STUN client")
 	fmt.Printf("  Ready to connect to server address %s\n", serverAddr)
-	if relayedIP != "" { fmt.Printf("  Relayed address %s://%s:%d\n", transport, relayedIP, relayedPort) }
-	if srflxIP != ""   { fmt.Printf("  Reflexive address %s://%s:%d\n", srflxProto, srflxIP, srflxPort) }
+	if relayedIP != "" { fmt.Printf("  Relayed address %s://%s:%d\n", transport, verboseIP(relayedIP), relayedPort) }
+	if srflxIP != ""   { fmt.Printf("  Reflexive address %s://%s:%d\n", srflxProto, verboseIP(srflxIP), srflxPort) }
 	fmt. Printf("  Debug mode: %s\n\n", func() string {
 		if *conf.ClientArgs.Debug { return "ON" }
 		return "OFF"
