@@ -220,7 +220,6 @@ func pong1(ip string, port int) error {
 				ech <- err
 				return -1
 			}
-			ping.UpdateRespTime(data, time.Now())
 
 			// send back to the peer who initiated ping test
 			if err := client.Send(ip, port, data); err != nil {
@@ -342,7 +341,6 @@ func pong2(ip string, port int) error {
 				ech <- err
 				return -1
 			}
-			ping.UpdateRespTime(data, time.Now())
 
 			// send back to the peer who initiated ping test
 			if err := client.Send(ip, port, data); err != nil {
