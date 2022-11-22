@@ -59,6 +59,7 @@ type dummyConn struct {
 	tcpConn     *net.TCPConn
 	tcpListener *net.TCPListener
 	readBuf     []byte
+	firstPkt    bool
 }
 
 var (
@@ -119,6 +120,7 @@ func newDummyConn(tcpConn *net.TCPConn) *dummyConn {
 	return &dummyConn{
 		tcpConn: tcpConn,
 		readBuf: []byte{},
+		firstPkt: true,
 	}
 }
 
@@ -126,8 +128,9 @@ func (c *dummyConn) Read(b []byte) (n int, err error) {
 
 	// hook tlsConn.Read() and get first request from stun client
 	n, err = c.tcpConn.Read(b)
-	if err == nil {
+	if c.firstPkt && err == nil {
 		c.readBuf = append(c.readBuf, b[:n]...)
+		c.firstPkt = false
 	}
 	return
 }
