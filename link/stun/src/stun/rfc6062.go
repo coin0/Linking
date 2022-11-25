@@ -31,6 +31,7 @@ const (
 
 const (
 	TCP_RELAY_MAX_CONN_TIMEOUT   = 30 // seconds
+	TCP_RELAY_READ_SIZE          = 4096 // bytes
 )
 
 type connInfo struct {
@@ -477,7 +478,7 @@ func (svr *relayserver) sendToClientTCP(peerConn net.Conn, id uint32) {
 	for {
 		peerConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
-		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
+		buf := make([]byte, TCP_RELAY_READ_SIZE)
 		// read data and send to client
 		if nr, err := peerConn.Read(buf); err != nil {
 			Info("[%s] tcp read: fwd to client id=%d: %s", svr.allocRef.key, info.id, err)
@@ -502,7 +503,7 @@ func (svr *relayserver) sendToPeerTCP(info *connInfo) {
 	for {
 		info.dataConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
-		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
+		buf := make([]byte, TCP_RELAY_READ_SIZE)
 		// read data and send to peer
 		if nr, err := info.dataConn.Read(buf); err != nil {
 			Info("[%s] tcp read: fwd to peer=%s: %s", svr.allocRef.key, info.remote, err)
@@ -750,7 +751,7 @@ func (cl *stunclient) receiveTCP2(info *connInfo) {
 	defer cl.dataConnMap.del(info.id)
 
 	for {
-		buf := make([]byte, TCP_SO_RECVBUF_SIZE)
+		buf := make([]byte, TCP_RELAY_READ_SIZE)
 		nr, err := info.dataConn.Read(buf)
 		if err != nil {
 			break

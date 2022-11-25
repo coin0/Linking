@@ -33,8 +33,8 @@ const (
 	TCP_MAX_BUF_SIZE   = 1024 * 1024 * 3 // 3MB
 
 	// socket buffer size
-	TCP_SO_RECVBUF_SIZE  = 1024 * 1024 * 1 // 1MB
-	TCP_SO_SNDBUF_SIZE   = 1024 * 1024 * 1 // 1MB
+	TCP_SO_RECVBUF_SIZE  = 87380 // bytes
+	TCP_SO_SNDBUF_SIZE   = 65535 // bytes
 	UDP_SO_RECVBUF_SIZE  = 1024 * 1024 * 4 // 4MB
 	UDP_SO_SNDBUF_SIZE   = 1024 * 1024 * 4 // 4MB
 
