@@ -278,7 +278,6 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 
 		// demux TCP TLS and retain data read by tls.handshake()
 		conn, addr := demuxTCP(tcpConn, tlsConf)
-		Info("tcp: accept new conn from src=%s", addr)
 
 		defer tcpConns.del(addr)
 		defer conn.Close()
@@ -290,6 +289,7 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 			buf := make([]byte, DEFAULT_MTU)
 			nr, err := conn.Read(buf)
 			if err != nil {
+				Info("[%s] handleTCP: read: %s", keygen(addr), err)
 				return
 			}
 
@@ -304,9 +304,11 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 					break
 				}
 
-				resp := process(one, addr)
-				if resp != nil {
-					conn.Write(resp)
+				if resp := process(one, addr); resp != nil {
+					if _, err = conn.Write(resp); err != nil {
+						Info("[%s] handleTCP: write: %s", keygen(addr), err)
+						return
+					}
 				}
 			}
 		}
@@ -338,7 +340,7 @@ func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (conn net.Conn, addr *a
 	if err := tlsConn.Handshake(); err != nil {
 		// unable to parse ClientHello, we think this is a plain TCP connection
 		conn, addr.Proto = tcpConn, NET_TCP
-		Info("tls handshake from src=%s: %s", addr, err)
+		Info("[%s] tcp: accept new TCP connection, TLS handshake: %s", keygen(addr), err)
 
 		// this is confusing but we have to save connection here because CONNECTION-BIND request
 		// must be sent over a new TCP connection apart from control connection, when server
@@ -355,6 +357,7 @@ func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (conn net.Conn, addr *a
 		}
 	} else {
 		conn, addr.Proto = tlsConn, NET_TLS
+		Info("[%s] tcp: accept new TLS connection", keygen(addr))
 	}
 
 	return

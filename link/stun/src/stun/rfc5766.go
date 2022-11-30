@@ -1444,7 +1444,7 @@ func (pool *turnpool) allocPort(addr *address) (int, error) {
 	mgr, ok := pool.portman[key]
 	pool.portLck.RUnlock()
 	if !ok {
-		Warn("portman: new interface IP found: addr=%d:%s", addr.Proto, addr.IP)
+		Warn("portman: new interface IP found: proto=%d, ip=%s", addr.Proto, addr.IP)
 		mgr = func() *portmanager {
 			pool.portLck.Lock()
 			defer pool.portLck.Unlock()
