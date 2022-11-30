@@ -13,6 +13,7 @@ import (
 	. "util/log"
 	"bytes"
 	"crypto/tls"
+	"sync/atomic"
 )
 
 const (
@@ -72,14 +73,24 @@ const (
 	STUN_CLIENT_DATA_LISTENER    = "DATA"
 )
 
+type portmanager struct {
+	// available and used port list
+	portlist   []atomic.Bool
+	cursor     atomic.Uint32
+
+	// the bound address based on which port numbers will be allocated
+	proto      byte
+	ip         net.IP
+}
+
 type turnpool struct {
 	// allocation struct map
 	table      map[string]*allocation
 	tableLck   *sync.RWMutex
 
-	// available port number cursor
-	availPort  int
-	portLck    *sync.Mutex
+	// the key of port manager map is keygen(relay.proto, relay.ip, 0)
+	portman    map[string]*portmanager
+	portLck    *sync.RWMutex
 }
 
 type relayserver struct {
@@ -239,8 +250,8 @@ var (
 	allocPool = &turnpool{
 		table: map[string]*allocation{},
 		tableLck: &sync.RWMutex{},
-		availPort: TURN_SRV_MIN_PORT,
-		portLck: &sync.Mutex{},
+		portman: map[string]*portmanager{},
+		portLck: &sync.RWMutex{},
 	}
 )
 
@@ -965,6 +976,9 @@ func (alloc *allocation) save() (int, error) {
 		return STUN_ERR_BAD_REQUEST, fmt.Errorf("already allocated")
 	}
 
+	// save relay protocol (transport type)
+	alloc.relay.Proto = parseTransportNetType(alloc.transport)
+
 	// check if requested address family is available and save relayed IP address
 	if alloc.ipv4Relay {
 		alloc.relay.IP = net.ParseIP(*conf.Args.RelayedIP)
@@ -981,17 +995,14 @@ func (alloc *allocation) save() (int, error) {
 
 	// create relay service
 	alloc.server = newRelay(alloc)
-	port, err := alloc.server.bind()
-	if err != nil {
+	if err := alloc.server.bind(); err != nil {
 		alloc.removeFromPool()
 		return STUN_ERR_SERVER_ERROR, err
 	}
 
-	// save relayed port
-	alloc.relay.Port = port
-
 	// spawn a thread to listen on UDP/TCP
 	if err := alloc.server.spawn(); err != nil {
+		allocPool.freePort(&alloc.relay)
 		return STUN_ERR_SERVER_ERROR, err
 	}
 
@@ -1171,24 +1182,27 @@ func newRelay(alloc *allocation) *relayserver {
 	}
 }
 
-func (svr *relayserver) bind() (p int, _ error) {
+func (svr *relayserver) bind() (err error) {
 
 	svr.svrLck.Lock()
 	defer svr.svrLck.Unlock()
 	if svr.status != TURN_RELAY_NEW {
-		return -1, fmt.Errorf("relay server has already started")
+		return fmt.Errorf("relay server has already started")
 	}
 
 	// try 40 times, NEVER ASK WHY 40
 	for i := 0; i < 40; i++ {
 
-		p = allocPool.nextPort(svr.allocRef.transport)
+		if svr.allocRef.relay.Port, err = allocPool.allocPort(&svr.allocRef.relay); err != nil {
+			return fmt.Errorf("alloc port: %s", err)
+		}
+
 		// IPv4 relay by default
-		addr := fmt.Sprintf("%s:%d", svr.allocRef.relay.IP, p)
+		addr := fmt.Sprintf("%s:%d", svr.allocRef.relay.IP, svr.allocRef.relay.Port)
 		network := "4"
 		if !svr.allocRef.ipv4Relay {
 			// IPv6 relay is specified
-			addr = fmt.Sprintf("[%s]:%d", svr.allocRef.relay.IP, p)
+			addr = fmt.Sprintf("[%s]:%d", svr.allocRef.relay.IP, svr.allocRef.relay.Port)
 			network = "6"
 		}
 
@@ -1196,12 +1210,14 @@ func (svr *relayserver) bind() (p int, _ error) {
 		switch svr.allocRef.transport {
 		case PROTO_NUM_TCP:
 			if tcp, err := svr.listenTCP("tcp" + network, addr); err != nil {
+				allocPool.freePort(&svr.allocRef.relay)
 				continue
 			} else {
 				svr.conn = tcp
 			}
 		case PROTO_NUM_UDP:
 			if udp, err := svr.listenUDP("udp" + network, addr); err != nil {
+				allocPool.freePort(&svr.allocRef.relay)
 				continue
 			} else {
 				svr.conn = udp
@@ -1209,9 +1225,9 @@ func (svr *relayserver) bind() (p int, _ error) {
 		}
 
 		svr.status = TURN_RELAY_BOUND
-		return p, nil
+		return nil
 	}
-	return -1, fmt.Errorf("could not bind local address")
+	return fmt.Errorf("could not bind local address")
 }
 
 // TODO connection needs retry
@@ -1262,7 +1278,10 @@ func (svr *relayserver) spawn() error {
 
 		// wait for listening thread
 		svr.wg.Wait()
-		svr.clear()
+
+		// server socket has been closed
+		Info("[%s] allocation expired", svr.allocRef.key)
+		allocPool.freePort(&svr.allocRef.relay)
 		svr.status = TURN_RELAY_CLOSED
 	}(svr)
 
@@ -1413,20 +1432,63 @@ func (pool *turnpool) find(key string) (alloc *allocation, ok bool) {
 	return
 }
 
-func (pool *turnpool) nextPort(transport byte) (p int) {
+func (pool *turnpool) allocPort(addr *address) (int, error) {
 
-	pool.portLck.Lock()
-	defer pool.portLck.Unlock()
+	// port manager is a map with the key of Proto:IP
+	addr.Port = 0
+	key := keygen(addr)
+	total := TURN_SRV_MAX_PORT - TURN_SRV_MIN_PORT + 1
 
-	// TODO differ TCP and UDP relay
-
-	p = pool.availPort
-	if pool.availPort == TURN_SRV_MAX_PORT {
-		pool.availPort = TURN_SRV_MIN_PORT
-	} else {
-		pool.availPort++
+	// initialize port manager for a new IP address
+	pool.portLck.RLock()
+	mgr, ok := pool.portman[key]
+	pool.portLck.RUnlock()
+	if !ok {
+		Warn("portman: new interface IP found: addr=%d:%s", addr.Proto, addr.IP)
+		mgr = func() *portmanager {
+			pool.portLck.Lock()
+			defer pool.portLck.Unlock()
+			// initialize port manager for new IP
+			pool.portman[key] = &portmanager{
+				proto: addr.Proto,
+				ip: addr.IP,
+				portlist: make([]atomic.Bool, total, total),
+			}
+			return pool.portman[key]
+		}()
 	}
-	return
+
+	// pick one port
+	for i := 0; i < total; i++ {
+		index := mgr.cursor.Add(1) % uint32(total)
+		// swap element by "true" and succeed to lock by returning "false"
+		if !mgr.portlist[index].Swap(true) {
+			return TURN_SRV_MIN_PORT + int(index), nil
+		}
+	}
+	return 0, fmt.Errorf("no available port")
+}
+
+func (pool *turnpool) freePort(addr *address) error {
+
+	// get port manager
+	addr.Port = 0
+	key := keygen(addr)
+	pool.portLck.RLock()
+	mgr, ok := pool.portman[key]
+	pool.portLck.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("relayed address %s not found", addr)
+	}
+
+	index := addr.Port - TURN_SRV_MIN_PORT
+	if index < 0 || index > TURN_SRV_MAX_PORT {
+		return fmt.Errorf("port number %d out of range", addr.Port)
+	}
+	mgr.portlist[index].Swap(false)
+
+	return nil
 }
 
 func (pool *turnpool) printTable() (result string) {

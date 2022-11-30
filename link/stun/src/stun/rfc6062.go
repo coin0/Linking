@@ -374,6 +374,13 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 
 	defer svr.wg.Done()
 	defer dummy.tcpListener.Close()
+	// close all peer data connections
+	defer svr.tcpConns.getAll(
+		func(c net.Conn) {
+
+			c.SetDeadline(time.Now())
+		},
+	)
 
 	for {
 		tcpConn, err := dummy.tcpListener.AcceptTCP()
@@ -534,27 +541,6 @@ func (svr *relayserver) listenTCP(network, addr string) (*dummyConn, error) {
 	}
 
 	return dummy, nil
-}
-
-func (svr *relayserver) clear() {
-
-	Info("[%s] allocation expired", svr.allocRef.key)
-
-	switch svr.allocRef.transport {
-	case PROTO_NUM_TCP: svr.clearRelayTCP()
-	case PROTO_NUM_UDP: // nothing to do
-	}
-}
-
-func (svr *relayserver) clearRelayTCP() {
-
-	// close all peer data connections
-	svr.tcpConns.getAll(
-		func(c net.Conn) {
-
-			c.SetDeadline(time.Now())
-		},
-	)
 }
 
 // -------------------------------------------------------------------------------------------------

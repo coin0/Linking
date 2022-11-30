@@ -644,6 +644,15 @@ func parseAddrFamilyType(b byte) string {
 	return fmt.Sprintf("unknown %s", b)
 }
 
+func parseTransportNetType(b byte) byte {
+
+	switch b {
+	case PROTO_NUM_TCP: return NET_TCP
+	case PROTO_NUM_UDP: return NET_UDP
+	}
+	return NET_TBD
+}
+
 // -------------------------------------------------------------------------------------------------
 
 func (addr *address) String() string {
