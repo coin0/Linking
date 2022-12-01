@@ -32,6 +32,7 @@ type argument struct {
 	Users    arrayflags
 	Http     *string
 	Log      *string
+	LogSize  *string
 }
 
 type clientArgs struct {
@@ -43,6 +44,7 @@ type clientArgs struct {
 	Password   *string
 	Debug      *bool
 	Log        *string
+	LogSize    *string
 	SelfTest   *string
 }
 
