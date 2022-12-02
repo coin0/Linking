@@ -638,6 +638,16 @@ func parseTransportType(b byte) string {
 	return fmt.Sprintf("unknown %s", b)
 }
 
+func parseNetType(b byte) string {
+
+	switch b {
+	case NET_UDP: return "udp"
+	case NET_TCP: return "tcp"
+	case NET_TLS: return "tls"
+	}
+	return fmt.Sprintf("unknown net type", b)
+}
+
 func parseAddrFamilyType(b byte) string {
 
 	switch b {

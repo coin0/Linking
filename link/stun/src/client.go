@@ -17,12 +17,12 @@ import(
 )
 
 var (
+	relayedProto = ""
 	relayedIP    = ""
 	relayedPort  = 0
 	srflxProto   = ""
 	srflxIP      = ""
 	srflxPort    = 0
-	transport    = ""
 	client, _    = stun.NewClient("", 0, "")
 )
 
@@ -93,7 +93,7 @@ func usage() {
 	fmt.Println("******************************************")
 	fmt.Println("Simple STUN client")
 	fmt.Printf("  Ready to connect to server address %s\n", serverAddr)
-	if relayedIP != "" { fmt.Printf("  Relayed address %s://%s:%d\n", transport, verboseIP(relayedIP), relayedPort) }
+	if relayedIP != "" { fmt.Printf("  Relayed address %s://%s:%d\n", relayedProto, verboseIP(relayedIP), relayedPort) }
 	if srflxIP != ""   { fmt.Printf("  Reflexive address %s://%s:%d\n", srflxProto, verboseIP(srflxIP), srflxPort) }
 	fmt. Printf("  Debug mode: %s\n\n", func() string {
 		if *conf.ClientArgs.Debug { return "ON" }
@@ -416,7 +416,7 @@ func exec(input string) (err error) {
 		client.NoFragment = true
 		client.EvenPort = true
 		client.ReservToken = make([]byte, 8)
-		transport = "udp"
+		transport := "udp"
 		ipfam := "4"
 		if get(input, 1) == "tcp" || get(input, 1) == "t" {
 			transport = "tcp";
@@ -462,7 +462,7 @@ func exec(input string) (err error) {
 		p, _ := strconv.Atoi(get(input, 2))
 		sz, _ := strconv.Atoi(get(input, 3))
 		dur, _ := strconv.Atoi(get(input, 4))
-		if transport == "udp" {
+		if relayedProto == "udp" {
 			err = ping1(get(input, 1), p, sz, dur)
 		} else {
 			err = ping2(get(input, 1), p, sz, dur)
@@ -470,7 +470,7 @@ func exec(input string) (err error) {
 	case 'Q':
 		if len(strings.Split(input, " ")) != 3 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))
-		if transport == "udp" {
+		if relayedProto == "udp" {
 			err = pong1(get(input, 1), p)
 		} else {
 			err = pong2(get(input, 1), p)
@@ -481,14 +481,14 @@ func exec(input string) (err error) {
 		if err = exec(fmt.Sprintf("a %s 600", get(input, 1))); err != nil {
 			return fmt.Errorf("alloc: %s", err)
 		}
-		ip, port, err := client.RelayedAddr()
+		proto, ip, port, err := client.RelayedAddr()
 		if err != nil {
 			return fmt.Errorf("could not get relayed address: %s", err)
 		}
 		// begin self ping test
 		sz, _ := strconv.Atoi(get(input, 2))
 		dur, _ := strconv.Atoi(get(input, 3))
-		if transport == "udp" {
+		if proto == "udp" {
 			err = ping1(ip, port, sz, dur)
 		} else {
 			err = ping2(ip, port, sz, dur)
@@ -543,7 +543,7 @@ func main() {
 	for {
 		// wait for user input
 		if client != nil {
-			relayedIP, relayedPort, _ = client.RelayedAddr()
+			relayedProto, relayedIP, relayedPort, _ = client.RelayedAddr()
 			srflxProto, srflxIP, srflxPort, _ = client.SrflxAddr()
 		} else {
 			relayedIP, relayedPort = "", 0

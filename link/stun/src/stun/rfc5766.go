@@ -2005,7 +2005,8 @@ func (cl *stunclient) Alloc(relaytype string) error {
 		return fmt.Errorf("alloc response: missing relayed address")
 	}
 	// only UDP is supported according to https://tools.ietf.org/html/rfc5766#section-14.7
-	cl.relay.Proto = NET_UDP
+	// extended support defined in https://tools.ietf.org/html/rfc6062 for TCP relay
+	cl.relay.Proto = parseTransportNetType(cl.transport)
 
 	// adjust lifetime
 	cl.Lifetime, err = resp.getAttrLifetime()
@@ -2121,21 +2122,17 @@ func (cl *stunclient) CreatePerm(ipList []string) error {
 
 func (cl *stunclient) Send(ip string, port int, data []byte) error {
 
-	// proto needs to be set properly according to client's relay type
-	transport := byte(NET_UDP)
-	if cl.transport == PROTO_NUM_TCP {
-		transport = NET_TCP
-	}
 	peer := &address{
 		IP: net.ParseIP(ip),
 		Port: port,
-		Proto: transport,
+		// proto needs to be set properly according to client's relay type
+		Proto: parseTransportNetType(cl.transport),
 	}
 	key := keygen(peer)
 	buf := []byte{}
 
 	// for TCP relay we send data as-is over data connections
-	if transport == NET_TCP {
+	if cl.transport == PROTO_NUM_TCP {
 		conn := cl.dataConns.get(peer)
 		if conn == nil {
 			return fmt.Errorf("connection does not exist")
@@ -2348,26 +2345,19 @@ func (cl *stunclient) BindChan(ip string, port int) error {
 	return nil
 }
 
-func (cl *stunclient) RelayedAddr() (string, int, error) {
+func (cl *stunclient) RelayedAddr() (string, string, int, error) {
 
 	if cl.relay != nil {
-		return cl.relay.IP.String(), cl.relay.Port, nil
+		return parseNetType(cl.relay.Proto), cl.relay.IP.String(), cl.relay.Port, nil
 	}
 
-	return "", 0, fmt.Errorf("no relay")
+	return "", "", 0, fmt.Errorf("no relay")
 }
 
 func (cl *stunclient) SrflxAddr() (string, string, int, error) {
 
 	if cl.srflx != nil {
-		return func() string {
-			switch cl.srflx.Proto {
-			case NET_TCP: return "tcp"
-			case NET_UDP: return "udp"
-			case NET_TLS: return "tls"
-			default: return "unknown"
-			}
-		}(), cl.srflx.IP.String(), cl.srflx.Port, nil
+		return parseNetType(cl.srflx.Proto), cl.srflx.IP.String(), cl.srflx.Port, nil
 	}
 
 	return "", "", 0, fmt.Errorf("srflx unknown")
