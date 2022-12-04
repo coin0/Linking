@@ -225,10 +225,10 @@ func (this *message) doConnBindRequest(addr *address) (*message, error) {
 
 	// respond connection-bind success to the client on behalf of handleTCP() and start listening
 	// on this client raw data connection since handleTCP() only handles stun messages
+	Info("[%s][%s] %s", alloc.key, keygen(addr), msg.print4Log())
 	dataConn.Write(msg.buffer())
 
 	// save source address and connection before notifying sendToPeerTCP() routine
-	Info("[%s] bind new client data conn=%s with id=%d", alloc.key, addr, info.id)
 	info.dataAddr, info.dataConn = addr, dataConn
 
 	// notify relay server to start listening on the peer
@@ -433,6 +433,7 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 				tcpConn.Close()
 				return
 			}
+			Info("[%s] %s", svr.allocRef.key, msg.print4Log())
 		}(tcpConn)
 	}
 }
@@ -474,9 +475,13 @@ func (svr *relayserver) sendToClientTCP(peerConn net.Conn, id uint32) {
 	// otherwise we do not read any content in TCP buffer
 	ticker := time.NewTicker(time.Second * TCP_RELAY_MAX_CONN_TIMEOUT)
 	select {
-	case <-ticker.C: return // close this peer connection due to timeout
+	case <-ticker.C:
+		Warn("[%s] connection bind timeout, id=%d", svr.allocRef.key, info.id)
+		return // close this peer connection due to timeout
 	case <-info.connBound: break
 	}
+	Info("[%s] connection bound, id=%d", svr.allocRef.key, info.id)
+
 	// if peer data connection is lost, close client data connection as well
 	// following deferred function must be set after CONNECTION-BIND succeeds
 	// https://datatracker.ietf.org/doc/html/rfc6062#section-5.5
