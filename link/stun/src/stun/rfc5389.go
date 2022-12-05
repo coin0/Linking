@@ -636,6 +636,11 @@ func checkMessage(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("msg length is too large: len=%d, actual=%d", msgLen, len(buf) - 20)
 	}
 
+	// check STUN message magic cookie
+	if binary.BigEndian.Uint32(buf[4:]) != STUN_MSG_MAGIC_COOKIE {
+		return nil, fmt.Errorf("magic cookie mismatch")
+	}
+
 	// STUN message is always padded to a multiple of 4 bytes
 	if msgLen & 0x03 != 0 {
 		return nil, fmt.Errorf("stun message is not aligned")
