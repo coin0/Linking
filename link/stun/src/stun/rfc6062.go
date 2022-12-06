@@ -12,6 +12,7 @@ import (
 	"util/dbg"
 	"crypto/tls"
 	"util/reuse"
+	"conf"
 )
 
 const (
@@ -717,7 +718,11 @@ func (cl *stunclient) connectTCP2(connID uint32, connType byte) error {
 
 	// save client data connection in the map and correlate its connection ID
 	if connType == NET_TLS {
-		tlsConn := tls.Client(tcpConn, &tls.Config{ InsecureSkipVerify: true })
+		config := &tls.Config{ InsecureSkipVerify: false, ServerName: host }
+		if !*conf.ClientArgs.VerifyCert {
+			config = &tls.Config{ InsecureSkipVerify: true }
+		}
+		tlsConn := tls.Client(tcpConn, config)
 		if err := tlsConn.Handshake(); err != nil {
 			return fmt.Errorf("TLS handshake: %s", err)
 		}

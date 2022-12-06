@@ -35,6 +35,7 @@ func init() {
 	conf.ClientArgs.Log      = flag.String("log", "cl.log", "path for log file")
 	conf.ClientArgs.LogSize  = flag.String("logsize", "100000000", "log size for a single file")
 	conf.ClientArgs.SelfTest = flag.String("t", "0", "perform self test (kbps)")
+	conf.ClientArgs.VerifyCert = flag.Bool("verify-cert", false, "verify TLS certificate chain")
 	flag.Parse()
 
 	// parse server address

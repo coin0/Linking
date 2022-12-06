@@ -46,6 +46,7 @@ type clientArgs struct {
 	Log        *string
 	LogSize    *string
 	SelfTest   *string
+	VerifyCert *bool
 }
 
 var (
