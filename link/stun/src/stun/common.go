@@ -411,6 +411,11 @@ func process(req []byte, addr *address) []byte {
 		return nil
 	}
 
+	// receive channel data from client
+	if alloc, ok := allocPool.find(keygen(addr)); ok {
+		alloc.clientbw.In(len(req))
+	}
+
 	switch req[0] & MSG_TYPE_MASK {
 	case MSG_TYPE_STUN_MSG:
 		// handle stun messages
@@ -471,7 +476,7 @@ func processChannelData(req []byte, addr *address) {
 
 // -------------------------------------------------------------------------------------------------
 
-func sendUDP(addr *address, data []byte) error {
+func sendUDP(addr *address, data []byte) (int, error) {
 
 	r := &net.UDPAddr{
 		IP:   addr.IP,
@@ -486,34 +491,34 @@ func sendUDP(addr *address, data []byte) error {
 	}
 
 	if udpConn == nil {
-		return fmt.Errorf("connection not ready")
+		return 0, fmt.Errorf("connection not ready")
 	}
 
-	_, err := udpConn.WriteToUDP(data, r)
+	n, err := udpConn.WriteToUDP(data, r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return n, nil
 }
 
-func sendTCP(r *address, data []byte) error {
+func sendTCP(r *address, data []byte) (int, error) {
 
 	conn := tcpConns.get(r)
 	if conn == nil {
-		return fmt.Errorf("tcp connection not found")
+		return 0, fmt.Errorf("tcp connection not found")
 	}
 
-	_, err := conn.Write(data)
+	n, err := conn.Write(data)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	return n, nil
 }
 
 // for TCP relay, this function is only to send data over control connection
-func sendTo(addr *address, data []byte) error {
+func sendTo(addr *address, data []byte) (int, error) {
 
 	switch addr.Proto {
 	case NET_UDP:
@@ -529,7 +534,7 @@ func sendTo(addr *address, data []byte) error {
 
 		return sendTCP(addr, data)
 	}
-	return nil
+	return 0, fmt.Errorf("protocol not supported")
 }
 
 func (this *message) process(r *address) (*message, error) {

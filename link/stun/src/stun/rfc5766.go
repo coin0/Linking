@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"sync/atomic"
+	"util/stats"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	TURN_CHANN_EXPIRY            = 600   // this is defined (https://tools.ietf.org/html/rfc5766#page-38)
 	TURN_NONCE_EXPIRY            = 3600  // <= 1h is recommended
 	TURN_NONCE_DICT              = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	TURN_STATS_INT_BANDWIDTH     = 10    // seconds
 )
 
 const (
@@ -155,6 +157,10 @@ type allocation struct {
 
 	// username
 	username    string
+
+	// statistics
+	peerbw      *stats.Bandwidth
+	clientbw    *stats.Bandwidth
 }
 
 type channel struct {
@@ -959,6 +965,12 @@ func newAllocation(r *address) (*allocation, error) {
 		return nil, fmt.Errorf("allocation already exists")
 	}
 
+	// traffic statistics - kbps
+	peerIO := func(in, out int64) { Info("[%s] peer in=%d, out=%d",
+		key, in / 128 / TURN_STATS_INT_BANDWIDTH, out / 128 / TURN_STATS_INT_BANDWIDTH) }
+	clientIO := func(in, out int64) { Info("[%s] client in=%d, out=%d",
+		key, in / 128 / TURN_STATS_INT_BANDWIDTH, out / 128 / TURN_STATS_INT_BANDWIDTH) }
+
 	return &allocation{
 		key:      key,
 		source:   *r,
@@ -966,6 +978,8 @@ func newAllocation(r *address) (*allocation, error) {
 		permsLck: &sync.RWMutex{},
 		channels: map[string]*channel{},
 		chanLck:  &sync.Mutex{},
+		peerbw:   stats.NewBandwidth(time.Second * TURN_STATS_INT_BANDWIDTH, peerIO),
+		clientbw: stats.NewBandwidth(time.Second * TURN_STATS_INT_BANDWIDTH, clientIO),
 	}, nil
 }
 
@@ -1242,6 +1256,11 @@ func (svr *relayserver) spawn() error {
 
 	go func(svr *relayserver) {
 
+		svr.allocRef.peerbw.Start()
+		defer svr.allocRef.peerbw.Stop()
+		svr.allocRef.clientbw.Start()
+		defer svr.allocRef.clientbw.Stop()
+
 		// read from UDP socket
 		ech := make(chan error)  // error channel
 
@@ -1327,6 +1346,7 @@ func (svr *relayserver) sendToPeerUDP(addr *address, data []byte) {
 		// fmt.Errorf("send error: %s", err)
 		return
 	}
+	svr.allocRef.peerbw.Out(len(data))
 }
 
 func (svr *relayserver) recvFromPeerUDP(ech chan error) {
@@ -1342,6 +1362,7 @@ func (svr *relayserver) recvFromPeerUDP(ech chan error) {
 			ech <- err
 			break
 		}
+		svr.allocRef.peerbw.In(nr)
 
 		// send to client
 		svr.sendToClientUDP(rm, buf[:nr])
@@ -1397,8 +1418,10 @@ func (svr *relayserver) sendToClientUDP(peer *net.UDPAddr, data []byte) {
 			buf = chdata.buffer()
 		}
 
-		if err := sendTo(&svr.allocRef.source, buf); err != nil {
+		if n, err := sendTo(&svr.allocRef.source, buf); err != nil {
 			return
+		} else {
+			svr.allocRef.clientbw.Out(n)
 		}
 	}(svr, peer, data)
 }

@@ -429,7 +429,7 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 
 			// send CONNECTION-ATTEMPT indication to client
 			msg, _ := newConnAttemptIndication(id, peer)
-			if err := sendTo(&svr.allocRef.source, msg.buffer()); err != nil {
+			if _, err := sendTo(&svr.allocRef.source, msg.buffer()); err != nil {
 				Error("[%s] send conn-attempt: %s, peer=%s", svr.allocRef.key, err, peer)
 				tcpConn.Close()
 				return
@@ -492,14 +492,20 @@ func (svr *relayserver) sendToClientTCP(peerConn net.Conn, id uint32) {
 		peerConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
 		buf := make([]byte, TCP_RELAY_READ_SIZE)
+
 		// read data and send to client
-		if nr, err := peerConn.Read(buf); err != nil {
+		nr, err := peerConn.Read(buf)
+		if err != nil {
 			Info("[%s] tcp read: fwd to client id=%d: %s", svr.allocRef.key, info.id, err)
 			break
-		} else if _, err = info.dataConn.Write(buf[:nr]); err != nil {
+		}
+		svr.allocRef.peerbw.In(nr)
+
+		if nr, err = info.dataConn.Write(buf[:nr]); err != nil {
 			Info("[%s] tcp write: fwd to client id=%d: %s", svr.allocRef.key, info.id, err)
 			break
 		}
+		svr.allocRef.clientbw.Out(nr)
 	}
 }
 
@@ -517,14 +523,20 @@ func (svr *relayserver) sendToPeerTCP(info *connInfo) {
 		info.dataConn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
 		buf := make([]byte, TCP_RELAY_READ_SIZE)
+
 		// read data and send to peer
-		if nr, err := info.dataConn.Read(buf); err != nil {
+		nr, err := info.dataConn.Read(buf)
+		if err != nil {
 			Info("[%s] tcp read: fwd to peer=%s: %s", svr.allocRef.key, info.remote, err)
 			break
-		} else if _, err = info.peerConn.Write(buf[:nr]); err != nil {
+		}
+		svr.allocRef.clientbw.In(nr)
+
+		if nr, err = info.peerConn.Write(buf[:nr]); err != nil {
 			Info("[%s] tcp write: fwd to peer=%s: %s", svr.allocRef.key, info.remote, err)
 			break
 		}
+		svr.allocRef.peerbw.Out(nr)
 	}
 }
 
