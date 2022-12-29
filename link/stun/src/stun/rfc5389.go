@@ -11,12 +11,14 @@ import (
 	"util/dbg"
 	"conf"
 	. "util/log"
+	"hash/crc32"
 )
 
 const (
 	STUN_MSG_HEADER_SIZE  = 20
 	STUN_MSG_MAGIC_COOKIE = 0x2112A442
 	STUN_NONCE_LENGTH     = 32              // < 128, https://tools.ietf.org/html/rfc5389#section-15.8
+	STUN_FINGERPRINT_XOR  = 0x5354554e
 )
 
 const (
@@ -241,6 +243,49 @@ func (this *message) bufferExIntegrityAttr() []byte {
 	}
 
 	// message length
+	binary.BigEndian.PutUint16(payload[2:], uint16(msgLen))
+
+	return payload
+}
+
+func (this *message) bufferExFingerprint() []byte {
+
+	payload := make([]byte, 20)
+
+	// message type
+	binary.BigEndian.PutUint16(payload[0:], uint16(this.method | this.encoding))
+
+	// put magic cookie
+	binary.BigEndian.PutUint32(payload[4:], uint32(STUN_MSG_MAGIC_COOKIE))
+
+	// put transaction ID
+	copy(payload[8:], this.transactionID)
+
+	// this message length should reflect actual bytes above attribute FINGERPRINT
+	msgLen := 0
+
+	// append attributes
+	for _, attr := range this.attributes {
+
+		if attr.typevalue == STUN_ATTR_FINGERPRINT {
+			break
+		}
+
+		bytes := make([]byte, 4)
+		binary.BigEndian.PutUint16(bytes[0:], attr.typevalue)
+		binary.BigEndian.PutUint16(bytes[2:], uint16(attr.length))
+		payload = append(payload, bytes...)
+		payload = append(payload, attr.value...)
+
+		// notice: because of paddings inside attr
+		// sometimes len(attr.value) is not equal to attr.length
+		msgLen += 4 + len(attr.value)
+	}
+
+	// including fingerprint length
+	msgLen += 8 // 4 + 4 (crc32)
+
+	// update message length
 	binary.BigEndian.PutUint16(payload[2:], uint16(msgLen))
 
 	return payload
@@ -596,6 +641,21 @@ func (this *message) addAttrSoftware(info string) int {
 	return 4 + len(attr.value)
 }
 
+func (this *message) addAttrFingerprint() int {
+
+	attr := &attribute{
+		typevalue:  STUN_ATTR_FINGERPRINT,
+		typename:   parseAttributeType(STUN_ATTR_FINGERPRINT),
+		length:     4,
+		value:      this.computeFingerprint(),
+	}
+
+	// add to end of message
+	this.attributes = append(this.attributes, attr)
+
+	return 4 + 4
+}
+
 func getMessage(buf []byte) (*message, error) {
 
 	buf, err := checkMessage(buf)
@@ -889,6 +949,18 @@ func (this *message) checkCredential() (code int, err error) {
 	}
 
 	return 0, nil
+}
+
+func (this *message) computeFingerprint() []byte {
+
+	// calculate checksum
+	chksum := crc32.ChecksumIEEE(this.bufferExFingerprint())
+
+	// convert interger to byte slice
+	data := make([]byte, 4)
+	binary.BigEndian.PutUint32(data[0:], chksum ^ STUN_FINGERPRINT_XOR)
+
+	return data
 }
 
 // -------------------------------------------------------------------------------------------------
