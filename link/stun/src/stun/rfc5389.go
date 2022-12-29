@@ -396,6 +396,11 @@ func (this *message) getAttrMsgIntegrity() (string, error) {
 	return this.getAttrStringValue(STUN_ATTR_MESSAGE_INTEGRITY, "MESSAGE-INTEGRITY")
 }
 
+func (this *message) getAttrSoftware() (string, error) {
+
+	return this.getAttrStringValue(STUN_ATTR_SOFTWARE, "SOFTWARE")
+}
+
 func (this *message) getAttrStringValue(typevalue uint16, typename string) (string, error) {
 
 	attr := this.findAttr(typevalue)
@@ -564,6 +569,27 @@ func (this *message) addAttrMsgIntegrity(key string) int {
 	return 4 + len(attr.value)
 }
 
+func (this *message) addAttrSoftware(info []byte) int {
+
+	attr := &attribute{
+		typevalue:  STUN_ATTR_SOFTWARE,
+		typename:   parseAttributeType(STUN_ATTR_SOFTWARE),
+		length:     len(info),
+	}
+
+	// paddings
+	total := attr.length
+	if total % 4 != 0 {
+		total += 4 - total % 4
+	}
+
+	attr.value = make([]byte, total)
+	copy(attr.value[0:], info)
+
+	this.attributes = append(this.attributes, attr)
+	return 4 + len(attr.value)
+}
+
 func getMessage(buf []byte) (*message, error) {
 
 	buf, err := checkMessage(buf)
@@ -675,7 +701,7 @@ func (this *message) print(title string) {
 				return fmt.Sprintf("(%v)", err)
 			}
 			return fmt.Sprintf("(status=%d, %s)", code, errStr)
-		case STUN_ATTR_NONCE, STUN_ATTR_REALM, STUN_ATTR_USERNAME:
+		case STUN_ATTR_NONCE, STUN_ATTR_REALM, STUN_ATTR_USERNAME, STUN_ATTR_SOFTWARE:
 			return fmt.Sprintf("(%s)", decodeStringValue(attr))
 		case STUN_ATTR_LIFETIME:
 			return fmt.Sprintf("(%d seconds)", binary.BigEndian.Uint32(attr.value))
@@ -728,6 +754,8 @@ func (this *message) print4Log() string {
 				return fmt.Sprintf("realm=%s", decodeStringValue(attr))
 			case STUN_ATTR_USERNAME:
 				return fmt.Sprintf("user=%s", decodeStringValue(attr))
+			case STUN_ATTR_SOFTWARE:
+				return fmt.Sprintf("data=%s", decodeStringValue(attr))
 			case STUN_ATTR_LIFETIME:
 				return fmt.Sprintf("t=%d", binary.BigEndian.Uint32(attr.value))
 			case STUN_ATTR_CONNECTION_ID:
