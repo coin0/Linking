@@ -569,13 +569,19 @@ func (this *message) addAttrMsgIntegrity(key string) int {
 	return 4 + len(attr.value)
 }
 
-func (this *message) addAttrSoftware(info []byte) int {
+func (this *message) addAttrSoftware(info string) int {
 
 	attr := &attribute{
 		typevalue:  STUN_ATTR_SOFTWARE,
 		typename:   parseAttributeType(STUN_ATTR_SOFTWARE),
-		length:     len(info),
 	}
+
+	// https://datatracker.ietf.org/doc/html/rfc5389#section-15.10
+	// less than 128 characters (which can be as long as 763 bytes)
+	if len(info) > 763 {
+		info = info[0:763]
+	}
+	attr.length = len(info)
 
 	// paddings
 	total := attr.length
