@@ -212,6 +212,7 @@ func (this *message) bufferExIntegrityAttr() []byte {
 	// append attributes
 	for _, attr := range this.attributes {
 
+		// TODO integrity and integrity256 may both exist
 		// fall out of for loop when this message already contains attribute message integrity
 		// otherwise we compute the whole message length, anyway we need involve 24 byte length
 		// of integrity attr to compute the integrity value
@@ -248,6 +249,7 @@ func (this *message) bufferExIntegrityAttr() []byte {
 	return payload
 }
 
+// TODO refactor bufferExAttr
 func (this *message) bufferExFingerprint() []byte {
 
 	payload := make([]byte, 20)
@@ -267,10 +269,6 @@ func (this *message) bufferExFingerprint() []byte {
 	// append attributes
 	for _, attr := range this.attributes {
 
-		if attr.typevalue == STUN_ATTR_FINGERPRINT {
-			break
-		}
-
 		bytes := make([]byte, 4)
 		binary.BigEndian.PutUint16(bytes[0:], attr.typevalue)
 		binary.BigEndian.PutUint16(bytes[2:], uint16(attr.length))
@@ -282,7 +280,7 @@ func (this *message) bufferExFingerprint() []byte {
 		msgLen += 4 + len(attr.value)
 	}
 
-	// including fingerprint length
+	// include fingerprint length
 	msgLen += 8 // 4 + 4 (crc32)
 
 	// update message length
