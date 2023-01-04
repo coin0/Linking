@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"strings"
 	"os"
-	"net/http"
 	"net"
 	"strconv"
-	"io"
-	"time"
 	. "util/log"
+	"rest"
 )
 
 var (
@@ -60,10 +58,11 @@ func main() {
 		fmt.Println("Get IPv6:", err)
 		os.Exit(1)
 	}
-	if len(*conf.Args.ServiceIP) > 0 { fmt.Printf("service IP %s bound\n", *conf.Args.ServiceIP) }
-	if len(*conf.Args.ServiceIPv6) > 0 { fmt.Printf("service IP %s bound\n", *conf.Args.ServiceIPv6) }
+	if len(*conf.Args.ServiceIP) > 0 { fmt.Printf("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port) }
+	if len(*conf.Args.ServiceIPv6) > 0 { fmt.Printf("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port) }
 	if len(*conf.Args.RelayedIP) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIP) }
 	if len(*conf.Args.RelayedIPv6) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIPv6) }
+	if len(*conf.Args.Http) > 0 { fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RelayedIP, *conf.Args.Http) }
 
 	// open log file
 	SetLog(*conf.Args.Log)
@@ -77,7 +76,7 @@ func main() {
 	wg := &sync.WaitGroup{}
 
 	// start listening
-	wg.Add(4)
+	wg.Add(4) // exclude restful API server
 
 	// listen on UDP for IPv4 and IPv6 sockets
 	go func(wg *sync.WaitGroup) {
@@ -109,7 +108,7 @@ func main() {
 
 	go func () {
 		for {
-			listenHTTP(*conf.Args.ServiceIP, *conf.Args.Http)
+			rest.ListenHTTP(*conf.Args.ServiceIP, *conf.Args.Http)
 		}
 	}()
 
@@ -168,69 +167,3 @@ func loadUsers() {
 	}
 }
 
-func listenHTTP(ip, port string) error {
-
-	http.HandleFunc("/get/alloc", httpGetAlloc)
-	http.HandleFunc("/get/user", httpGetUser)
-	http.HandleFunc("/set/user", httpSetUser)
-	err := http.ListenAndServe(ip + ":" + port, nil)
-	return err
-}
-
-func httpGetAlloc(w http.ResponseWriter, req *http.Request) {
-
-	io.WriteString(w, stun.AllocTable());
-}
-
-func httpGetUser(w http.ResponseWriter, req *http.Request) {
-
-	io.WriteString(w, conf.Users.UserTable());
-}
-
-func httpSetUser(w http.ResponseWriter, req *http.Request) {
-
-	q := req.URL.Query()
-
-	// get name
-	user := ""
-	if name, ok := q["name"]; !ok {
-		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "name is required")
-		return
-	} else {
-		user = name[0]
-	}
-
-	// add a new user or update password if user exists
-	if psw, ok := q["psw"]; ok {
-		if err := conf.Users.Add(user, *conf.Args.Realm, psw[0]); err != nil {
-			conf.Users.Reset(user, *conf.Args.Realm, psw[0])
-		}
-	} else {
-		// cannot update a user that does not exist
-		if !conf.Users.Has(user) {
-			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, "user does not exist")
-			return
-		}
-	}
-
-	// update user enabler
-	if enabled, ok := q["enable"]; ok {
-		switch enabled[0] {
-		case "1":  conf.Users.Enable(user)
-		case "0":  conf.Users.Disable(user)
-		default:  conf.Users.Enable(user)
-		}
-	}
-
-	// update expiry
-	if exp, ok := q["exp"]; ok {
-		h, err := strconv.Atoi(exp[0])
-		if err == nil {
-			err = conf.Users.Refresh(user, time.Now().Add(time.Duration(h) * time.Hour))
-		}
-	}
-
-	io.WriteString(w, conf.Users.UserTable());
-}
