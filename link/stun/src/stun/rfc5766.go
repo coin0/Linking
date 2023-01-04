@@ -21,12 +21,12 @@ const (
 	TURN_MAX_LIFETIME            = 600
 	TURN_SRV_MIN_PORT            = 49152
 	TURN_SRV_MAX_PORT            = 65535
+	TURN_SRV_TICKER_INT          = 10    // seconds
 	TURN_PERM_LIFETIME           = 300   // this is fixed (https://tools.ietf.org/html/rfc5766#section-8)
 	TURN_PERM_LIMIT              = 10
 	TURN_CHANN_EXPIRY            = 600   // this is defined (https://tools.ietf.org/html/rfc5766#page-38)
 	TURN_NONCE_EXPIRY            = 3600  // <= 1h is recommended
 	TURN_NONCE_DICT              = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	TURN_STATS_INT_BANDWIDTH     = 10    // seconds
 )
 
 const (
@@ -965,12 +965,6 @@ func newAllocation(r *address) (*allocation, error) {
 		return nil, fmt.Errorf("allocation already exists")
 	}
 
-	// traffic statistics - kbps
-	peerIO := func(in, out int64) { Info("[%s] peer in=%d, out=%d",
-		key, in / 128 / TURN_STATS_INT_BANDWIDTH, out / 128 / TURN_STATS_INT_BANDWIDTH) }
-	clientIO := func(in, out int64) { Info("[%s] client in=%d, out=%d",
-		key, in / 128 / TURN_STATS_INT_BANDWIDTH, out / 128 / TURN_STATS_INT_BANDWIDTH) }
-
 	return &allocation{
 		key:      key,
 		source:   *r,
@@ -978,8 +972,8 @@ func newAllocation(r *address) (*allocation, error) {
 		permsLck: &sync.RWMutex{},
 		channels: map[string]*channel{},
 		chanLck:  &sync.Mutex{},
-		peerbw:   stats.NewBandwidth(time.Second * TURN_STATS_INT_BANDWIDTH, peerIO),
-		clientbw: stats.NewBandwidth(time.Second * TURN_STATS_INT_BANDWIDTH, clientIO),
+		peerbw:   stats.NewBandwidth(0, nil),
+		clientbw: stats.NewBandwidth(0, nil),
 	}, nil
 }
 
@@ -1256,13 +1250,12 @@ func (svr *relayserver) spawn() error {
 
 	go func(svr *relayserver) {
 
-		svr.allocRef.peerbw.Start()
-		defer svr.allocRef.peerbw.Stop()
-		svr.allocRef.clientbw.Start()
-		defer svr.allocRef.clientbw.Stop()
-
 		// read from UDP socket
 		ech := make(chan error)  // error channel
+
+		// check bandwidth
+		var peerIn, peerOut, clientIn, clientOut int64
+		last := time.Now()
 
 		// spawn listening thread
 		svr.wg.Add(1)
@@ -1272,7 +1265,7 @@ func (svr *relayserver) spawn() error {
 		}
 
 		// poll fds
-		ticker := time.NewTicker(time.Second * 60)
+		ticker := time.NewTicker(time.Second * TURN_SRV_TICKER_INT)
 		timer := time.NewTimer(time.Second * time.Duration(svr.allocRef.lifetime))
 		for quit := false; !quit; {
 			select {
@@ -1283,6 +1276,15 @@ func (svr *relayserver) spawn() error {
 					svr.allocRef.nonce = genNonceWithCookie(STUN_NONCE_LENGTH)
 					svr.allocRef.nonceExp = now.Add(time.Second * time.Duration(TURN_NONCE_EXPIRY))
 				}
+				// output bandwidth
+				cin, cout := svr.allocRef.clientbw.Sum(); pin, pout := svr.allocRef.peerbw.Sum()
+				div := 125 * now.Sub(last).Milliseconds() / 1000
+				Info("[%s] client in=%d, out=%d, peer in=%d, out=%d", svr.allocRef.key,
+					(cin - clientIn) / div, (cout - clientOut) / div,
+					(pin - peerIn) / div, (pout - peerOut) / div,
+				)
+				clientIn, clientOut, peerIn, peerOut = cin, cout, pin, pout
+				last = now
 			case <-timer.C:
 				if seconds, err := svr.allocRef.getRestLife(); err == nil {
 					timer = time.NewTimer(time.Second * time.Duration(seconds))
