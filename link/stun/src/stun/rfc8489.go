@@ -291,7 +291,7 @@ func (this *message) computeIntegritySHA256(key string) string {
 
 	// hmac, use sha256
 	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write(this.bufferExIntegrityAttr())
+	mac.Write(this.bufferBeforeAttr(STUN_ATTR_MESSAGE_INTEGRITY_SHA256, 0))
 
 	// https://www.rfc-editor.org/rfc/rfc8489#section-14.6
 	// >= 16 bytes and <= 32 bytes, 32 bytes long by default

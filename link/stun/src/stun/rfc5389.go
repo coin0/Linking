@@ -180,17 +180,11 @@ func (this *message) buffer() []byte {
 	return payload
 }
 
-func (this *message) transactionIDString() (str string) {
-
-	for _, v := range this.transactionID {
-		str += fmt.Sprintf("%02x", v)
-	}
-
-	return str
-}
-
-// this function is only used to compute message integrity value
-func (this *message) bufferExIntegrityAttr() []byte {
+// some attributes need to calculate checksum depending on preceding payload data
+// but with final stun message length to be filled in, this function will help find
+// existing attribute and return data in []byte prior to it, some attributes might
+// be present multiple times, use 'skip' to specify the index of given attribute
+func (this *message) bufferBeforeAttr(typevalue uint16, skip int) []byte {
 
 	payload := make([]byte, 20)
 
@@ -203,25 +197,17 @@ func (this *message) bufferExIntegrityAttr() []byte {
 	// put transaction ID
 	copy(payload[8:], this.transactionID)
 
-	// this message length should reflect actual bytes above attribute MESSAGE_INTEGRITY
+	// this message length should reflect actual bytes above given attribute
 	msgLen := 0
-
-	// a flag for STUN_ATTR_MESSAGE_INTEGRITY_SHA256
-	useSHA256 := false
 
 	// append attributes
 	for _, attr := range this.attributes {
 
-		// TODO integrity and integrity256 may both exist
-		// fall out of for loop when this message already contains attribute message integrity
-		// otherwise we compute the whole message length, anyway we need involve 24 byte length
-		// of integrity attr to compute the integrity value
-
-		if attr.typevalue == STUN_ATTR_MESSAGE_INTEGRITY {
-			break
-		} else if attr.typevalue == STUN_ATTR_MESSAGE_INTEGRITY_SHA256 {
-			useSHA256 = true
-			break
+		// fall out of for loop if given attribute exists otherwise return entire payload data
+		// and message length should be set to correct value including the given attribute
+		if attr.typevalue == typevalue {
+			if skip == 0 { break }
+			skip--
 		}
 
 		bytes := make([]byte, 4)
@@ -235,58 +221,31 @@ func (this *message) bufferExIntegrityAttr() []byte {
 		msgLen += 4 + len(attr.value)
 	}
 
-	// message-integrity attribute should not be included in integrity computing
-	// while its attribute length should be counted in stun message length
-	if useSHA256 {
-		msgLen += 4 + STUN_MSG_INTEGRITY_SHA256_LENGTH // 32-byte hash by default
-	} else {
+	switch typevalue {
+	case STUN_ATTR_MESSAGE_INTEGRITY:
+		// https://datatracker.ietf.org/doc/html/rfc5389#section-15.4
 		msgLen += 24 // 4 + 20 (SHA1)
+	case STUN_ATTR_MESSAGE_INTEGRITY_SHA256:
+		// https://datatracker.ietf.org/doc/html/rfc8489#section-14.6
+		msgLen += 4 + STUN_MSG_INTEGRITY_SHA256_LENGTH // 32-byte hash by default
+	case STUN_ATTR_FINGERPRINT:
+		// https://datatracker.ietf.org/doc/html/rfc5389#section-15.5
+		msgLen += 8 // 4 + 4 (crc32) include fingerprint length
 	}
-
-	// message length
-	binary.BigEndian.PutUint16(payload[2:], uint16(msgLen))
-
-	return payload
-}
-
-// TODO refactor bufferExAttr
-func (this *message) bufferExFingerprint() []byte {
-
-	payload := make([]byte, 20)
-
-	// message type
-	binary.BigEndian.PutUint16(payload[0:], uint16(this.method | this.encoding))
-
-	// put magic cookie
-	binary.BigEndian.PutUint32(payload[4:], uint32(STUN_MSG_MAGIC_COOKIE))
-
-	// put transaction ID
-	copy(payload[8:], this.transactionID)
-
-	// this message length should reflect actual bytes above attribute FINGERPRINT
-	msgLen := 0
-
-	// append attributes
-	for _, attr := range this.attributes {
-
-		bytes := make([]byte, 4)
-		binary.BigEndian.PutUint16(bytes[0:], attr.typevalue)
-		binary.BigEndian.PutUint16(bytes[2:], uint16(attr.length))
-		payload = append(payload, bytes...)
-		payload = append(payload, attr.value...)
-
-		// notice: because of paddings inside attr
-		// sometimes len(attr.value) is not equal to attr.length
-		msgLen += 4 + len(attr.value)
-	}
-
-	// include fingerprint length
-	msgLen += 8 // 4 + 4 (crc32)
 
 	// update message length
 	binary.BigEndian.PutUint16(payload[2:], uint16(msgLen))
 
 	return payload
+}
+
+func (this *message) transactionIDString() (str string) {
+
+	for _, v := range this.transactionID {
+		str += fmt.Sprintf("%02x", v)
+	}
+
+	return str
 }
 
 func (this *message) newErrorMessage(code int, reason string) (*message) {
@@ -869,7 +828,7 @@ func (this *message) computeIntegrity(key string) string {
 
 	// hmac, use sha1
 	mac := hmac.New(sha1.New, []byte(key))
-	mac.Write(this.bufferExIntegrityAttr())
+	mac.Write(this.bufferBeforeAttr(STUN_ATTR_MESSAGE_INTEGRITY, 0))
 	return string(mac.Sum(nil))
 }
 
@@ -952,7 +911,7 @@ func (this *message) checkCredential() (code int, err error) {
 func (this *message) computeFingerprint() []byte {
 
 	// calculate checksum
-	chksum := crc32.ChecksumIEEE(this.bufferExFingerprint())
+	chksum := crc32.ChecksumIEEE(this.bufferBeforeAttr(STUN_ATTR_FINGERPRINT, -1))
 
 	// convert interger to byte slice
 	data := make([]byte, 4)
