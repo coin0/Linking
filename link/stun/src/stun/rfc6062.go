@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"util/reuse"
 	"conf"
+	"math/rand"
 )
 
 const (
@@ -71,6 +72,7 @@ type tcpRelayInfo struct {
 var (
 	dataConns = &tcpRelayInfo{
 		conns: map[uint32]*connInfo{},
+		cursor: rand.Uint32(),
 		lck:   &sync.Mutex{},
 	}
 )

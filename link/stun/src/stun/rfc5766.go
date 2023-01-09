@@ -1479,6 +1479,7 @@ func (pool *turnpool) allocPort(addr *address) (int, error) {
 				ip: addr.IP,
 				portlist: make([]atomic.Bool, total, total),
 			}
+			pool.portman[key].cursor.Add(rand.Uint32())
 			return pool.portman[key]
 		}()
 	}
