@@ -33,7 +33,8 @@ func init() {
 	conf.ClientArgs.Password = flag.String("p", "", "TURN/STUN server password")
 	conf.ClientArgs.Debug    = flag.Bool("d", false, "switch to turn on debug mode")
 	conf.ClientArgs.Log      = flag.String("log", "cl.log", "path for log file")
-	conf.ClientArgs.LogSize  = flag.String("logsize", "100000000", "log size for a single file")
+	conf.ClientArgs.LogSize  = flag.String("logsize", "100", "log size for a single file (MB)")
+	conf.Args.LogNum         = flag.String("lognum", "6", "maximum log file number")
 	conf.ClientArgs.SelfTest = flag.String("t", "0", "perform self test (kbps)")
 	conf.ClientArgs.VerifyCert = flag.Bool("verify-cert", false, "verify TLS certificate chain")
 	flag.Parse()
@@ -505,7 +506,9 @@ func main() {
 
 	SetLog(*conf.ClientArgs.Log)
 	if logsize, err := strconv.Atoi(*conf.ClientArgs.LogSize); err == nil {
-		SetRotation(logsize)
+		if lognum, err := strconv.Atoi(*conf.Args.LogNum); err == nil {
+			SetRotation(logsize * 1024 * 1024, lognum)
+		}
 	}
 
 	// create a new stunclient

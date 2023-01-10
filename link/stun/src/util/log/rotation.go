@@ -20,7 +20,7 @@ var (
 	rotationLck = &sync.Mutex{}
 )
 
-func SetRotation(maxsize int) error {
+func SetRotation(maxsize, maxnum int) error {
 
 	// disable rotation
 	if maxsize <= 0 {
@@ -44,6 +44,10 @@ func SetRotation(maxsize int) error {
 				continue
 			}
 
+			// ensure out dated log file must be removed before new archive is created
+			Retain(maxnum)
+
+			// roll an archive and delete original copy
 			now := time.Now()
 			Rotate(logPath + fmt.Sprintf(
 				"_%d%02d%02d_%02d%02d%02d.tar.gz",
@@ -77,7 +81,9 @@ func Rotate(archive string) {
 			}
 		}()
 
-		compressTarDotGz(npath, archive)
+		if err := compressTarDotGz(npath, archive); err != nil {
+			Error("logger: archive: %s", err)
+		}
 	}()
 
 	// create new log file and switch output back to file

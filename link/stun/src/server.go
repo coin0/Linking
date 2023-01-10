@@ -33,7 +33,8 @@ func init() {
 	conf.Args.Realm = flag.String("realm", "link", "used for long-term cred for TURN")
 	conf.Args.Http = flag.String("http", "8080", "port to receive http api request")
 	conf.Args.Log = flag.String("log", "stun.log", "path for log file")
-	conf.Args.LogSize = flag.String("logsize", "100000000", "maximum log size")
+	conf.Args.LogSize = flag.String("logsize", "100", "maximum log size (MB)")
+	conf.Args.LogNum = flag.String("lognum", "6", "maximum log file number")
 	flag.Var(&conf.Args.Users, "u", "add one user to TURN server")
 
 	flag.Parse()
@@ -67,7 +68,9 @@ func main() {
 	// open log file
 	SetLog(*conf.Args.Log)
 	if logsize, err := strconv.Atoi(*conf.Args.LogSize); err == nil {
-		SetRotation(logsize)
+		if lognum, err := strconv.Atoi(*conf.Args.LogNum); err == nil {
+			SetRotation(logsize * 1024 * 1024, lognum)
+		}
 	}
 
 	// handle user account

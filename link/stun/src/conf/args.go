@@ -33,6 +33,7 @@ type argument struct {
 	Http     *string
 	Log      *string
 	LogSize  *string
+	LogNum   *string
 }
 
 type clientArgs struct {
@@ -45,6 +46,7 @@ type clientArgs struct {
 	Debug      *bool
 	Log        *string
 	LogSize    *string
+	LogNum     *string
 	SelfTest   *string
 	VerifyCert *bool
 }
