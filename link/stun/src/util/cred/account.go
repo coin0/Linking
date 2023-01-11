@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	ACCOUNT_DEFAULT_EXPIRY       = 365 // days
+	ACCOUNT_DEFAULT_EXPIRY       = 300 // seconds
 )
 
 type account struct {
@@ -77,7 +77,7 @@ func (book *AccountBook) Add(name, realm, psw string) error {
 		createdAt:   time.Now(),
 		password:    genMD5Key(name, realm, psw),
 		expiry:      true,
-		validBefore: time.Now().Add(time.Duration(ACCOUNT_DEFAULT_EXPIRY) * time.Hour * 24),
+		validBefore: time.Now().Add(time.Duration(ACCOUNT_DEFAULT_EXPIRY) * time.Second),
 		secFeatEnabled: true,
 		passwordSHA256: genSHA256Key(name, realm, psw),
 	}
@@ -230,6 +230,24 @@ func (book *AccountBook) IsSecFeatEnabled(name string) (bool, error) {
 	}
 
 	return acc.secFeatEnabled, nil
+}
+
+func (book *AccountBook) Cleanup(dur time.Duration) int {
+
+	book.accountLck.Lock()
+	defer book.accountLck.Unlock()
+
+	// delete expired credentials according to the given duration since expiry
+	now := time.Now()
+	n := 0
+	for name, acc := range book.accounts {
+		if now.Sub(acc.validBefore).Nanoseconds() > dur.Nanoseconds() {
+			delete(book.accounts, name)
+			n++
+		}
+	}
+
+	return n
 }
 
 func (book *AccountBook) check(name string) (*account, error) {
