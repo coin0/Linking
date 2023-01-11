@@ -166,6 +166,8 @@ func loadUsers() {
 			fmt.Printf("cannot add user \"%s\" from cmd line: %s\n", pair[0], err.Error())
 			os.Exit(1)
 		}
+		// the user added by command line will by default have indefinitely expiry
+		conf.Users.ExpiryOff(pair[0])
 		fmt.Println("user", pair[0], "added")
 	}
 }

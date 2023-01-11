@@ -246,7 +246,7 @@ func (book *AccountBook) check(name string) (*account, error) {
 	}
 
 	// check expiry
-	if time.Now().After(acc.validBefore) {
+	if acc.expiry && time.Now().After(acc.validBefore) {
 		return nil, fmt.Errorf("account expired")
 	}
 
