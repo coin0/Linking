@@ -34,6 +34,8 @@ type argument struct {
 	Log      *string
 	LogSize  *string
 	LogNum   *string
+	CpuProf  *string
+	MemProf  *string
 }
 
 type clientArgs struct {
