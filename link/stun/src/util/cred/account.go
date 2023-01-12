@@ -7,6 +7,7 @@ import (
 	"util/dbg"
 	"crypto/md5"
 	"crypto/sha256"
+	. "util/log"
 )
 
 const (
@@ -81,6 +82,7 @@ func (book *AccountBook) Add(name, realm, psw string) error {
 		secFeatEnabled: true,
 		passwordSHA256: genSHA256Key(name, realm, psw),
 	}
+	Info("cred: create account '%s'", name)
 
 	return nil
 }
@@ -241,7 +243,8 @@ func (book *AccountBook) Cleanup(dur time.Duration) int {
 	now := time.Now()
 	n := 0
 	for name, acc := range book.accounts {
-		if now.Sub(acc.validBefore).Nanoseconds() > dur.Nanoseconds() {
+		if acc.expiry && now.Sub(acc.validBefore).Nanoseconds() > dur.Nanoseconds() {
+			Info("cred: delete account '%s'", name)
 			delete(book.accounts, name)
 			n++
 		}
