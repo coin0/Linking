@@ -12,9 +12,8 @@ import (
 	"strconv"
 	. "util/log"
 	"rest"
-	"runtime/pprof"
-	"runtime"
 	"os/signal"
+	"util/dbg"
 )
 
 var (
@@ -47,46 +46,11 @@ func init() {
 
 func main() {
 
-	// start profiling
-	if *conf.Args.CpuProf != "" {
-		f, err := os.Create(*conf.Args.CpuProf)
-		if err != nil {
-			fmt.Println("could not create CPU profile: ", err)
-		}
-		defer f.Close()
-		runtime.SetCPUProfileRate(100000)
-		if err := pprof.StartCPUProfile(f); err != nil {
-			fmt.Println("could not start CPU profile: ", err)
-		}
-		defer pprof.StopCPUProfile()
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt)
-		go func(){
-			<-c
-			pprof.StopCPUProfile()
-			os.Exit(0)
-		}()
-	}
-	if *conf.Args.MemProf != "" {
-		f, err := os.Create(*conf.Args.MemProf)
-		if err != nil {
-			fmt.Println("could not create memory profile: ", err)
-		}
-		defer f.Close()
-		runtime.GC()
-		if err := pprof.WriteHeapProfile(f); err != nil {
-			fmt.Println("could not write memory profile: ", err)
-		}
-	}
-
 	// print message
 	if *help {
 		flag.Usage()
 		return
 	}
-
-	// find available IPv4 and IPv6 interfaces
-	bindInterfaces()
 
 	// open log file
 	SetLog(*conf.Args.Log)
@@ -96,11 +60,38 @@ func main() {
 		}
 	}
 
+	// register signal handler
+	initSig()
+
+	// start profiling if needed
+	if *conf.Args.CpuProf != "" {
+		dbg.StartCPUProf(*conf.Args.CpuProf, dbg.DEFAULT_CPU_PROF_RATE)
+		defer dbg.StopCPUProf()
+	}
+	if *conf.Args.MemProf != "" {
+		dbg.StartMemProf(*conf.Args.MemProf)
+		defer dbg.StopCPUProf()
+	}
+
+	// find available IPv4 and IPv6 interfaces
+	bindInterfaces()
+
 	// handle user account
 	loadUsers()
 
 	// service begins to listen
 	startServices()
+}
+
+func initSig() {
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func(){
+		<-c
+		Info("received SIGINT...")
+		os.Exit(0)
+	}()
 }
 
 func bindInterfaces() {

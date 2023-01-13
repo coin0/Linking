@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"stun"
 	"time"
+	"fmt"
+	"util/dbg"
 )
 
 // -------------------------------------------------------------------------------------------------
@@ -16,6 +18,8 @@ func ListenHTTP(ip, port string) error {
 	http.HandleFunc("/get/alloc", httpGetAlloc)
 	http.HandleFunc("/get/user", httpGetUser)
 	http.HandleFunc("/set/user", httpSetUser)
+	http.HandleFunc("/get/prof", httpGetProf)
+	http.HandleFunc("/set/prof", httpSetProf)
 	err := http.ListenAndServe(ip + ":" + port, nil)
 	return err
 }
@@ -76,4 +80,55 @@ func httpSetUser(w http.ResponseWriter, req *http.Request) {
 	}
 
 	io.WriteString(w, conf.Users.UserTable());
+}
+
+func httpGetProf(w http.ResponseWriter, req *http.Request) {
+
+	io.WriteString(
+		w,
+		fmt.Sprintf(
+			"cpu_prof=%t\nmem_prof=%t\n",
+			dbg.IsCPUProfStarted(),
+			dbg.IsMemProfStarted(),
+		),
+	)
+}
+
+func httpSetProf(w http.ResponseWriter, req *http.Request) {
+
+	q := req.URL.Query()
+
+	var (
+		err        error
+		resp       string
+	)
+
+	if v, ok := q["cpu"]; ok {
+		if v[0] != "0" {
+			err = dbg.StartCPUProf("cpu.prof", dbg.DEFAULT_CPU_PROF_RATE)
+		} else {
+			err = dbg.StopCPUProf()
+		}
+		if err != nil {
+			resp += fmt.Sprintf("cpu_prof: %s\n", err)
+		}
+	}
+
+	if v, ok := q["mem"]; ok {
+		if v[0] != "0" {
+			dbg.StartMemProf("mem.prof")
+		} else {
+			dbg.StopCPUProf()
+		}
+		if err != nil {
+			resp += fmt.Sprintf("mem_prof: %s\n", err)
+		}
+	}
+
+	// looks not an error
+	if err == nil {
+		resp = "OK\n"
+	}
+
+	io.WriteString(w, resp);
 }
