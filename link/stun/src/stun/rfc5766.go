@@ -1322,7 +1322,7 @@ func (svr *relayserver) sendToPeer(addr *address, data []byte) {
 
 	// note: TCP transmission is defined in rfc6062: sendToPeerTCP()
 	switch svr.allocRef.transport {
-	case PROTO_NUM_UDP: go svr.sendToPeerUDP(addr, data)
+	case PROTO_NUM_UDP: svr.sendToPeerUDP(addr, data)
 	default: Error("[%s] unknown transport type: %d", svr.allocRef.key, svr.allocRef.transport)
 	}
 }
@@ -1392,41 +1392,38 @@ func (svr *relayserver) listenUDP(network, addr string) (*net.UDPConn, error) {
 
 func (svr *relayserver) sendToClientUDP(peer *net.UDPAddr, data []byte) {
 
-	go func(svr *relayserver, peer *net.UDPAddr, data []byte) {
+	// look up permissions
+	paddr := &address{
+		IP:    peer.IP,
+		Port:  peer.Port,
+	}
+	if err := svr.allocRef.checkPerms(paddr); err != nil {
+		return
+	}
 
-		// look up permissions
-		paddr := &address{
-			IP:    peer.IP,
-			Port:  peer.Port,
-		}
-		if err := svr.allocRef.checkPerms(paddr); err != nil {
-			return
-		}
+	var buf []byte
+	if ch, err := svr.allocRef.findChanByPeer(paddr); err != nil {
+		// send data indication
+		msg := &message{}
+		msg.method = STUN_MSG_METHOD_DATA
+		msg.encoding = STUN_MSG_INDICATION
+		msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+		msg.transactionID = make([]byte, 12)
+		binary.BigEndian.PutUint64(msg.transactionID[0:], uint64(time.Now().UnixNano()))
+		msg.length += msg.addAttrXorPeerAddr(paddr)
+		msg.length += msg.addAttrData(data)
+		buf = msg.buffer()
+	} else {
+		// send channel data
+		chdata := newChannelData(ch, data)
+		buf = chdata.buffer()
+	}
 
-		var buf []byte
-		if ch, err := svr.allocRef.findChanByPeer(paddr); err != nil {
-			// send data indication
-			msg := &message{}
-			msg.method = STUN_MSG_METHOD_DATA
-			msg.encoding = STUN_MSG_INDICATION
-			msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
-			msg.transactionID = make([]byte, 12)
-			binary.BigEndian.PutUint64(msg.transactionID[0:], uint64(time.Now().UnixNano()))
-			msg.length += msg.addAttrXorPeerAddr(paddr)
-			msg.length += msg.addAttrData(data)
-			buf = msg.buffer()
-		} else {
-			// send channel data
-			chdata := newChannelData(ch, data)
-			buf = chdata.buffer()
-		}
-
-		if n, err := sendTo(&svr.allocRef.source, buf); err != nil {
-			return
-		} else {
-			svr.allocRef.clientbw.Out(n)
-		}
-	}(svr, peer, data)
+	if n, err := sendTo(&svr.allocRef.source, buf); err != nil {
+		return
+	} else {
+		svr.allocRef.clientbw.Out(n)
+	}
 }
 
 // -------------------------------------------------------------------------------------------------
