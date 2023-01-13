@@ -15,6 +15,7 @@ import (
 	"crypto/tls"
 	"sync/atomic"
 	"util/stats"
+	"strconv"
 )
 
 const (
@@ -265,7 +266,7 @@ var (
 
 func keygen(r *address) string {
 
-	return fmt.Sprintf("%d<%s>%d", r.Proto, r.IP.String(), r.Port)
+	return string(r.Proto) + "<" + r.IP.String() + ">" + strconv.Itoa(r.Port)
 }
 
 func genNonce(length int) string {
