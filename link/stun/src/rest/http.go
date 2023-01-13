@@ -105,7 +105,7 @@ func httpSetProf(w http.ResponseWriter, req *http.Request) {
 
 	if v, ok := q["cpu"]; ok {
 		if v[0] != "0" {
-			err = dbg.StartCPUProf("cpu.prof", dbg.DEFAULT_CPU_PROF_RATE)
+			err = dbg.StartCPUProf(*conf.Args.CpuProf)
 		} else {
 			err = dbg.StopCPUProf()
 		}
@@ -116,7 +116,7 @@ func httpSetProf(w http.ResponseWriter, req *http.Request) {
 
 	if v, ok := q["mem"]; ok {
 		if v[0] != "0" {
-			dbg.StartMemProf("mem.prof")
+			dbg.StartMemProf(*conf.Args.MemProf)
 		} else {
 			dbg.StopCPUProf()
 		}

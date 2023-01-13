@@ -13,7 +13,6 @@ import (
 	. "util/log"
 	"rest"
 	"os/signal"
-	"util/dbg"
 )
 
 var (
@@ -37,8 +36,8 @@ func init() {
 	conf.Args.Log = flag.String("log", "stun.log", "path for log file")
 	conf.Args.LogSize = flag.String("logsize", "100", "maximum log size (MB)")
 	conf.Args.LogNum = flag.String("lognum", "6", "maximum log file number")
-	conf.Args.CpuProf = flag.String("cpuprof", "", "write cpu profile to file")
-	conf.Args.MemProf = flag.String("memprof", "", "write memory profile to file")
+	conf.Args.CpuProf = flag.String("cpuprof", "cpu.prof", "write cpu profile to file")
+	conf.Args.MemProf = flag.String("memprof", "mem.prof", "write memory profile to file")
 	flag.Var(&conf.Args.Users, "u", "add one user to TURN server")
 
 	flag.Parse()
@@ -62,16 +61,6 @@ func main() {
 
 	// register signal handler
 	initSig()
-
-	// start profiling if needed
-	if *conf.Args.CpuProf != "" {
-		dbg.StartCPUProf(*conf.Args.CpuProf, dbg.DEFAULT_CPU_PROF_RATE)
-		defer dbg.StopCPUProf()
-	}
-	if *conf.Args.MemProf != "" {
-		dbg.StartMemProf(*conf.Args.MemProf)
-		defer dbg.StopCPUProf()
-	}
 
 	// find available IPv4 and IPv6 interfaces
 	bindInterfaces()

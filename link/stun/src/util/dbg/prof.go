@@ -16,7 +16,7 @@ var (
 
 // -------------------------------------------------------------------------------------------------
 
-func StartCPUProf(output string, samplerate int) error {
+func StartCPUProf(output string) error {
 
 	if cpuProfStarted.Swap(true) {
 		Warn("debug: cpu profiling already started")
