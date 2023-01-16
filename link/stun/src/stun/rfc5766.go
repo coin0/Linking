@@ -26,6 +26,7 @@ const (
 	TURN_PERM_LIFETIME           = 300   // this is fixed (https://tools.ietf.org/html/rfc5766#section-8)
 	TURN_PERM_LIMIT              = 10
 	TURN_CHANN_EXPIRY            = 600   // this is defined (https://tools.ietf.org/html/rfc5766#page-38)
+	TURN_CHANN_HEADER_SIZE       = 4
 	TURN_NONCE_EXPIRY            = 3600  // <= 1h is recommended
 	TURN_NONCE_DICT              = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
@@ -1357,10 +1358,12 @@ func (svr *relayserver) recvFromPeerUDP(ech chan error) {
 	defer svr.wg.Done()
 	defer svr.conn.Close()
 
+	// for better performance we reserve additional space for chandata header
+	// and prepend header info after we read data from peer
+	buf := make([]byte, TURN_CHANN_HEADER_SIZE + DEFAULT_MTU)
 	for {
-		buf := make([]byte, DEFAULT_MTU)
 		conn, _ := svr.conn.(*net.UDPConn)
-		nr, rm, err := conn.ReadFromUDP(buf)
+		nr, rm, err := conn.ReadFromUDP(buf[TURN_CHANN_HEADER_SIZE:])
 		if err != nil {
 			ech <- err
 			break
@@ -1368,7 +1371,7 @@ func (svr *relayserver) recvFromPeerUDP(ech chan error) {
 		svr.allocRef.peerbw.In(nr)
 
 		// send to client
-		svr.sendToClientUDP(rm, buf[:nr])
+		svr.sendToClientUDP(rm, buf[:TURN_CHANN_HEADER_SIZE+nr])
 	}
 }
 
@@ -1411,12 +1414,14 @@ func (svr *relayserver) sendToClientUDP(peer *net.UDPAddr, data []byte) {
 		msg.transactionID = make([]byte, 12)
 		binary.BigEndian.PutUint64(msg.transactionID[0:], uint64(time.Now().UnixNano()))
 		msg.length += msg.addAttrXorPeerAddr(paddr)
-		msg.length += msg.addAttrData(data)
+		msg.length += msg.addAttrData(data[TURN_CHANN_HEADER_SIZE:])
 		buf = msg.buffer()
 	} else {
-		// send channel data
-		chdata := newChannelData(ch, data)
-		buf = chdata.buffer()
+		// put channel number
+		binary.BigEndian.PutUint16(data[0:], ch)
+		// put length
+		binary.BigEndian.PutUint16(data[2:], uint16(len(data[TURN_CHANN_HEADER_SIZE:])))
+		buf = data
 	}
 
 	if n, err := sendTo(&svr.allocRef.source, buf); err != nil {
