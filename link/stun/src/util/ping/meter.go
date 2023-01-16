@@ -253,7 +253,7 @@ func (meter *trafficMeter) analyze() (*statistics, error) {
 	}
 	if end >= 0 {
 		list = meter.buffer[0:end]
-		meter.buffer = meter.buffer[end+1:]
+		meter.buffer = meter.buffer[end:]
 	} else {
 		// if buffer is empty just return nil list
 		return meter.getStats(nil)
