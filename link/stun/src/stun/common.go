@@ -230,14 +230,14 @@ func ListenUDP(network, ip, port string) error {
 	udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
 	udpConn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
 
+	buf := make([]byte, DEFAULT_MTU)
 	for {
-		buf := make([]byte, DEFAULT_MTU)
 		nr, rm, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
 			return fmt.Errorf("read UDP: %s", err)
 		}
 
-		go func(req []byte, r *net.UDPAddr) {
+		func(req []byte, r *net.UDPAddr) {
 
 			// must convert to IPv4, sometimes it's in the form of IPv6
 			var ip net.IP
