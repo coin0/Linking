@@ -283,10 +283,10 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 		defer conn.Close()
 		tcpConns.set(addr, conn)
 
+		buf := make([]byte, DEFAULT_MTU)
 		for {
 			conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
-			buf := make([]byte, DEFAULT_MTU)
 			nr, err := conn.Read(buf)
 			if err != nil {
 				Info("[%s] handleTCP: read: %s", keygen(addr), err)
