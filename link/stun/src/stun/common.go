@@ -274,8 +274,6 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 		tcpConn.SetReadBuffer(TCP_SO_RECVBUF_SIZE)
 		tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
 
-		rest := make([]byte, 0)
-
 		// demux TCP TLS and retain data read by tls.handshake()
 		conn, addr := demuxTCP(tcpConn, tlsConf)
 
@@ -283,7 +281,16 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 		defer conn.Close()
 		tcpConns.set(addr, conn)
 
-		buf := make([]byte, DEFAULT_MTU)
+		var (
+			// make a buffer to store rest of data after being processed
+			rest = make([]byte, 0, DEFAULT_MTU * 2) // use capacity for better 'append' performance
+			// a buffer to store decoded one stun msg / channel data
+			buf  = make([]byte, DEFAULT_MTU)
+			// we need retain parsing error for logging
+			decErr     error
+			// separate complete stun/channeldata and rest data in two slices
+			one, more  []byte
+		)
 		for {
 			conn.SetDeadline(time.Now().Add(time.Second * time.Duration(TCP_MAX_TIMEOUT)))
 
@@ -293,18 +300,22 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 				return
 			}
 
+			if len(rest) + nr > DEFAULT_MTU * 2 {
+				Error("[%s] handleTCP: could not decode TCP stream: %s", keygen(addr), decErr)
+				return
+			}
 			rest = append(rest, buf[:nr]...)
-			for {
-				one := []byte{}
-				one, rest, err = decodeTCP(rest)
-				if err != nil {
-					if len(rest) > TCP_MAX_BUF_SIZE {
-						rest = []byte{}
-					}
-					break
-				}
 
-				if resp := process(one, addr); resp != nil {
+			for {
+				one, more, decErr = decodeTCP(rest)
+				if decErr != nil { break }
+
+				// copy decoded data and update rest data slice
+				copy(buf, one)
+				copy(rest, more)
+				rest = rest[:len(more)]
+
+				if resp := process(buf[:len(one)], addr); resp != nil {
 					if _, err = conn.Write(resp); err != nil {
 						Info("[%s] handleTCP: write: %s", keygen(addr), err)
 						return
