@@ -15,6 +15,10 @@ import (
 
 func ListenHTTP(ip, port string) error {
 
+	// restful APIs for service management
+	http.HandleFunc("/service/pid", handleServicePid)
+
+	// for debugging
 	http.HandleFunc("/get/alloc", httpGetAlloc)
 	http.HandleFunc("/get/user", httpGetUser)
 	http.HandleFunc("/set/user", httpSetUser)
