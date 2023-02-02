@@ -267,7 +267,8 @@ var (
 
 func keygen(r *address) string {
 
-	return string(r.Proto) + "<" + r.IP.String() + ">" + strconv.Itoa(r.Port)
+	// ASCII 48 ('0') as base number to show net protocol in decimal
+	return string(48 + r.Proto) + "<" + r.IP.String() + ">" + strconv.Itoa(r.Port)
 }
 
 func genNonce(length int) string {
