@@ -550,6 +550,12 @@ func sendTo(addr *address, data []byte) (int, error) {
 
 func (this *message) process(r *address) (*message, error) {
 
+	// discard messages with incorrect fingerprints
+	if err := this.checkFingerprint(); err != nil {
+		Error("[%s] stun message fingerprint error", keygen(r))
+		return nil, err
+	}
+
 	// special handlers
 	switch this.method | this.encoding {
 	case STUN_MSG_METHOD_ALLOCATE | STUN_MSG_REQUEST: return this.doAllocationRequest(r)

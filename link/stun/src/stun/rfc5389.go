@@ -403,6 +403,20 @@ func (this *message) getAttrSoftware() (string, error) {
 	return this.getAttrStringValue(STUN_ATTR_SOFTWARE, "SOFTWARE")
 }
 
+func (this *message) getAttrFingerprint() []string {
+
+	attrs := this.findAttrAll(STUN_ATTR_FINGERPRINT)
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	list := make([]string, 0, len(attrs))
+	for _, attr := range attrs {
+		list = append(list, decodeStringValue(attr))
+	}
+	return list
+}
+
 func (this *message) getAttrStringValue(typevalue uint16, typename string) (string, error) {
 
 	attr := this.findAttr(typevalue)
@@ -604,7 +618,7 @@ func (this *message) addAttrFingerprint() int {
 		typevalue:  STUN_ATTR_FINGERPRINT,
 		typename:   parseAttributeType(STUN_ATTR_FINGERPRINT),
 		length:     4,
-		value:      this.computeFingerprint(),
+		value:      this.computeFingerprint(-1), // no skip, compute crc for full payload
 	}
 
 	// add to end of message
@@ -908,16 +922,33 @@ func (this *message) checkCredential() (code int, err error) {
 	return 0, nil
 }
 
-func (this *message) computeFingerprint() []byte {
+func (this *message) computeFingerprint(skip int) []byte {
 
 	// calculate checksum
-	chksum := crc32.ChecksumIEEE(this.bufferBeforeAttr(STUN_ATTR_FINGERPRINT, -1))
+	chksum := crc32.ChecksumIEEE(this.bufferBeforeAttr(STUN_ATTR_FINGERPRINT, skip))
 
 	// convert interger to byte slice
 	data := make([]byte, 4)
 	binary.BigEndian.PutUint32(data[0:], chksum ^ STUN_FINGERPRINT_XOR)
 
 	return data
+}
+
+func (this *message) checkFingerprint() error {
+
+	fp := this.getAttrFingerprint()
+	if fp == nil {
+		// no fingerprint attribute in the message
+		return nil
+	}
+
+	// only verify crc32 for the last fingerprint attribute
+	last := len(fp) - 1
+	if fp[last] != string(this.computeFingerprint(last)) {
+		return fmt.Errorf("fingerprint mismatch")
+	}
+
+	return nil
 }
 
 // -------------------------------------------------------------------------------------------------
