@@ -1118,12 +1118,16 @@ func (alloc *allocation) addChan(ch uint16, addr *address) error {
 
 	now := time.Now()
 
+	// TODO - TODELETE and move to timer handler
 	// clean expired channels
 	for index, channel := range alloc.channels {
 		if now.After(channel.expiry) {
 			delete(alloc.channels, index)
 		}
 	}
+
+	// channel data use UDP transport
+	addr.Proto = NET_UDP
 
 	// if the channel already exists and the address is matched just refresh the timer
 	if channel, ok := alloc.channels[addr.IP.String()]; ok {
