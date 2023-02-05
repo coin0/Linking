@@ -49,7 +49,7 @@ type address struct {
 }
 
 type tcpPool struct {
-	conns   map[string]net.Conn
+	conns   map[allockey]net.Conn
 	lck     *sync.Mutex
 }
 
@@ -65,7 +65,7 @@ type dummyConn struct {
 var (
 	udp4Conn, udp6Conn *net.UDPConn
 	tcpConns = &tcpPool{
-		conns: map[string]net.Conn{},
+		conns: map[allockey]net.Conn{},
 		lck:   &sync.Mutex{},
 	}
 )

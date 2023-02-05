@@ -77,6 +77,19 @@ const (
 	STUN_CLIENT_DATA_LISTENER    = "DATA"
 )
 
+type allockey struct {
+	// service connection protocol
+	Proto      byte
+
+	// comparable IP address format
+	IP         [4]uint32
+	// indicator of IPv4 or IPv6
+	IPv4       bool
+
+	// client source port
+	Port       int
+}
+
 type portmanager struct {
 	// available and used port list
 	portlist   []atomic.Bool
@@ -89,11 +102,11 @@ type portmanager struct {
 
 type turnpool struct {
 	// allocation struct map
-	table      map[string]*allocation
+	table      map[allockey]*allocation
 	tableLck   *sync.RWMutex
 
 	// the key of port manager map is keygen(relay.proto, relay.ip, 0)
-	portman    map[string]*portmanager
+	portman    map[allockey]*portmanager
 	portLck    *sync.RWMutex
 }
 
@@ -118,8 +131,8 @@ type relayserver struct {
 }
 
 type allocation struct {
-	// hash key to find the alloc struct in pool
-	key         string
+	// use a comparable struct as a key
+	key         allockey
 
 	// transport type
 	transport   byte
@@ -211,7 +224,7 @@ type stunclient struct {
 	addrFamily  byte
 
 	// channels
-	channels    map[string]uint16
+	channels    map[allockey]uint16
 
 	// not nil if client is using UDP connection
 	udpConn     *net.UDPConn
@@ -256,19 +269,49 @@ type subclient struct {
 
 var (
 	allocPool = &turnpool{
-		table: map[string]*allocation{},
+		table: map[allockey]*allocation{},
 		tableLck: &sync.RWMutex{},
-		portman: map[string]*portmanager{},
+		portman: map[allockey]*portmanager{},
 		portLck: &sync.RWMutex{},
 	}
 )
 
 // -------------------------------------------------------------------------------------------------
 
-func keygen(r *address) string {
+func keygen(r *address) allockey {
+
+	key := allockey{
+		Proto: r.Proto,
+		Port:  r.Port,
+		IPv4:  true,
+	}
+
+	if r.IP.To4() == nil {
+		key.IPv4 = false
+	}
+
+	for i := 0; i + 4 <= len(r.IP) && i + 4 <= 16; i += 4 {
+		key.IP[i/4] = binary.BigEndian.Uint32(r.IP[i:])
+	}
+
+	return key
+}
+
+func (key allockey) String() string {
+
+	var ip net.IP
+	if key.IPv4 {
+		ip = make([]byte, 4, 4)
+		binary.BigEndian.PutUint32(ip, key.IP[0])
+	} else {
+		ip = make([]byte, 16, 16)
+		for i := 0; i < 4; i++ {
+			binary.BigEndian.PutUint32(ip[i:], key.IP[i])
+		}
+	}
 
 	// ASCII 48 ('0') as base number to show net protocol in decimal
-	return string(48 + r.Proto) + "<" + r.IP.String() + ">" + strconv.Itoa(r.Port)
+	return string(48 + key.Proto) + "<" + ip.String() + ">" + strconv.Itoa(key.Port)
 }
 
 func genNonce(length int) string {
@@ -1191,7 +1234,7 @@ func newRelay(alloc *allocation) *relayserver {
 		allocRef: alloc,
 		wg:       &sync.WaitGroup{},
 		tcpConns: &tcpPool{
-			conns: map[string]net.Conn{},
+			conns: map[allockey]net.Conn{},
 			lck: &sync.Mutex{},
 		},
 	}
@@ -1450,14 +1493,14 @@ func (pool *turnpool) insert(alloc *allocation) bool {
 	return false
 }
 
-func (pool *turnpool) remove(key string) {
+func (pool *turnpool) remove(key allockey) {
 
 	pool.tableLck.Lock()
 	defer pool.tableLck.Unlock()
 	delete(pool.table, key)
 }
 
-func (pool *turnpool) find(key string) (alloc *allocation, ok bool) {
+func (pool *turnpool) find(key allockey) (alloc *allocation, ok bool) {
 
 	pool.tableLck.RLock()
 	defer pool.tableLck.RUnlock()
@@ -1648,10 +1691,10 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 			IP: net.ParseIP(ip),
 			Port: port,
 		},
-		channels: map[string]uint16{},
+		channels: map[allockey]uint16{},
 		tcpBuffer: []byte{},
 		dataConns: &tcpPool{
-			conns: map[string]net.Conn{},
+			conns: map[allockey]net.Conn{},
 			lck:   &sync.Mutex{},
 		},
 		dataConnMap: &tcpRelayInfo{
