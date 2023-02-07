@@ -1329,9 +1329,9 @@ func (svr *relayserver) spawn() error {
 				// output bandwidth
 				cin, cout := svr.allocRef.clientbw.Sum(); pin, pout := svr.allocRef.peerbw.Sum()
 				div := 125 * now.Sub(last).Milliseconds() / 1000
-				Info("[%s] client in=%d, out=%d, peer in=%d, out=%d", svr.allocRef.key,
-					(cin - clientIn) / div, (cout - clientOut) / div,
-					(pin - peerIn) / div, (pout - peerOut) / div,
+				Info("[%s] client in=%d (%dkbps), out=%d (%dkbps), peer in=%d (%dkbps), out=%d (%dkbps)",
+					svr.allocRef.key, cin, (cin - clientIn) / div, cout, (cout - clientOut) / div,
+					pin, (pin - peerIn) / div, pout, (pout - peerOut) / div,
 				)
 				clientIn, clientOut, peerIn, peerOut = cin, cout, pin, pout
 				last = now
