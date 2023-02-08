@@ -657,7 +657,7 @@ func parseTransportType(b byte) string {
 	case PROTO_NUM_TCP: return "tcp"
 	case PROTO_NUM_UDP: return "udp"
 	}
-	return fmt.Sprintf("unknown %s", b)
+	return fmt.Sprintf("unknown proto %d", b)
 }
 
 func parseNetType(b byte) string {
@@ -667,7 +667,7 @@ func parseNetType(b byte) string {
 	case NET_TCP: return "tcp"
 	case NET_TLS: return "tls"
 	}
-	return fmt.Sprintf("unknown net type", b)
+	return fmt.Sprintf("unknown net type %d", b)
 }
 
 func parseAddrFamilyType(b byte) string {
@@ -676,7 +676,7 @@ func parseAddrFamilyType(b byte) string {
 	case ADDR_FAMILY_IPV4: return "ipv4"
 	case ADDR_FAMILY_IPV6: return "ipv6"
 	}
-	return fmt.Sprintf("unknown %s", b)
+	return fmt.Sprintf("unknown addr family %d", b)
 }
 
 func parseTransportNetType(b byte) byte {

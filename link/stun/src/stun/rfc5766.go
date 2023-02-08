@@ -1881,7 +1881,7 @@ func (cl *stunclient) receive(data []byte) error {
 
 	defer func() {
 		if err := recover(); err != nil {
-			Warn("RECOVER:\n%s")
+			Warn("RECOVER:\n%s", err)
 		}
 	}()
 

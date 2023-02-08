@@ -776,13 +776,13 @@ func (this *message) print4Log() string {
 			case STUN_ATTR_XOR_MAPPED_ADDR, STUN_ATTR_XOR_RELAYED_ADDR, STUN_ATTR_XOR_PEER_ADDR:
 				addr, err := decodeXorAddr(attr, this.transactionID)
 				if err != nil {
-					return fmt.Sprintf("err=%v", err)
+					return fmt.Sprintf("err=%s", err)
 				}
 				return fmt.Sprintf("addr=%s", addr)
 			case STUN_ATTR_ERROR_CODE:
 				code, errStr, err := decodeErrorCode(attr)
 				if err != nil {
-					return fmt.Sprintf("err=%v", attr.typename, err)
+					return fmt.Sprintf("err=%s", err)
 				}
 				return fmt.Sprintf("reason=%d %s", code, errStr)
 			case STUN_ATTR_NONCE:
