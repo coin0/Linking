@@ -101,8 +101,9 @@ type portmanager struct {
 }
 
 type turnpool struct {
-	// allocation struct map
-	table      map[allockey]*allocation
+	// allocation map by different index keys
+	relays     map[allockey]*allocation  // relayed address as a key
+	sources    map[allockey]*allocation  // source address as a key
 	tableLck   *sync.RWMutex
 
 	// the key of port manager map is keygen(relay.proto, relay.ip, 0)
@@ -195,6 +196,9 @@ type channelData struct {
 
 	// data payload
 	data        []byte
+
+	// original buffer including meta info
+	buf         []byte
 }
 
 type stunclient struct {
@@ -269,7 +273,8 @@ type subclient struct {
 
 var (
 	allocPool = &turnpool{
-		table: map[allockey]*allocation{},
+		sources: map[allockey]*allocation{},
+		relays: map[allockey]*allocation{},
 		tableLck: &sync.RWMutex{},
 		portman: map[allockey]*portmanager{},
 		portLck: &sync.RWMutex{},
@@ -1025,11 +1030,6 @@ func newAllocation(r *address) (*allocation, error) {
 
 func (alloc *allocation) save() (int, error) {
 
-	// insert allocation struct to global pool
-	if ok := alloc.addToPool(); !ok {
-		return STUN_ERR_BAD_REQUEST, fmt.Errorf("already allocated")
-	}
-
 	// save relay protocol (transport type)
 	alloc.relay.Proto = parseTransportNetType(alloc.transport)
 
@@ -1050,8 +1050,13 @@ func (alloc *allocation) save() (int, error) {
 	// create relay service
 	alloc.server = newRelay(alloc)
 	if err := alloc.server.bind(); err != nil {
-		alloc.removeFromPool()
 		return STUN_ERR_SERVER_ERROR, err
+	}
+
+	// insert allocation struct to global pool after relayed address is determined
+	if ok := alloc.addToPool(); !ok {
+		allocPool.freePort(&alloc.relay)
+		return STUN_ERR_BAD_REQUEST, fmt.Errorf("already allocated")
 	}
 
 	// spawn a thread to listen on UDP/TCP
@@ -1078,7 +1083,7 @@ func (alloc *allocation) addToPool() bool {
 
 func (alloc *allocation) removeFromPool() {
 
-	allocPool.remove(alloc.key)
+	allocPool.remove(alloc)
 }
 
 func (alloc *allocation) refresh(lifetime uint32) {
@@ -1486,25 +1491,35 @@ func (pool *turnpool) insert(alloc *allocation) bool {
 	pool.tableLck.Lock()
 	defer pool.tableLck.Unlock()
 
-	if _, ok := pool.table[alloc.key]; !ok {
-		pool.table[alloc.key] = alloc
+	if _, ok := pool.sources[alloc.key]; !ok {
+		pool.sources[alloc.key] = alloc
+		pool.relays[keygen(&alloc.relay)] = alloc
 		return true
 	}
 	return false
 }
 
-func (pool *turnpool) remove(key allockey) {
+func (pool *turnpool) remove(alloc *allocation) {
 
 	pool.tableLck.Lock()
 	defer pool.tableLck.Unlock()
-	delete(pool.table, key)
+	delete(pool.relays, keygen(&alloc.relay))
+	delete(pool.sources, alloc.key)
 }
 
 func (pool *turnpool) find(key allockey) (alloc *allocation, ok bool) {
 
 	pool.tableLck.RLock()
 	defer pool.tableLck.RUnlock()
-	alloc, ok = pool.table[key]
+	alloc, ok = pool.sources[key]
+	return
+}
+
+func (pool *turnpool) findByRelay(key allockey) (alloc *allocation, ok bool) {
+
+	pool.tableLck.RLock()
+	defer pool.tableLck.RUnlock()
+	alloc, ok = pool.relays[key]
 	return
 }
 
@@ -1573,7 +1588,7 @@ func (pool *turnpool) printTable() (result string) {
 	pool.tableLck.RLock()
 	defer pool.tableLck.RUnlock()
 
-	for _, alloc := range pool.table {
+	for _, alloc := range pool.sources {
 		result += fmt.Sprintf("alloc=%s relay=%s\n", alloc.key, keygen(&alloc.relay))
 		result += fmt.Sprintf("  owner=%s\n", alloc.username)
 		result += fmt.Sprintf("  lifetime=%d before %s\n", alloc.lifetime, alloc.expiry.Format("2006-01-02 15:04:05"))
@@ -1602,10 +1617,24 @@ func (pool *turnpool) printTable() (result string) {
 
 func newChannelData(channel uint16, data []byte) *channelData {
 
-	return &channelData{
+	ch := &channelData{
 		channel: channel,
-		data:    data,
 	}
+
+	// allocate buffer memory and reserve space for header
+	ch.buf = make([]byte, len(data) + TURN_CHANN_HEADER_SIZE)
+	ch.data = ch.buf[TURN_CHANN_HEADER_SIZE:]
+
+	// channel number
+	binary.BigEndian.PutUint16(ch.buf[0:], channel)
+
+	// length
+	binary.BigEndian.PutUint16(ch.buf[2:], uint16(len(data)))
+
+	// copy data payload to buffer
+	copy(ch.data, data)
+
+	return ch
 }
 
 func getChannelData(buf []byte) (*channelData, error) {
@@ -1618,6 +1647,7 @@ func getChannelData(buf []byte) (*channelData, error) {
 	return &channelData{
 		channel: binary.BigEndian.Uint16(buf[0:]),
 		data:    buf[4:],
+		buf:     buf[0:],
 	}, nil
 }
 
@@ -1653,23 +1683,18 @@ func (ch *channelData) transport(addr *address) {
 		return
 	}
 
-	alloc.server.sendToPeer(peer, ch.data)
+	if palloc, ok := allocPool.findByRelay(keygen(peer)); ok {
+		// transport over internal relayed address
+		palloc.server.sendToClientUDP(&net.UDPAddr{IP: addr.IP, Port: addr.Port}, ch.buf)
+	} else {
+		// send data to remote address
+		alloc.server.sendToPeer(peer, ch.data)
+	}
 }
 
 func (ch *channelData) buffer() []byte {
 
-	payload := make([]byte, 4)
-
-	// channel number
-	binary.BigEndian.PutUint16(payload[0:], ch.channel)
-
-	// length
-	binary.BigEndian.PutUint16(payload[2:], uint16(len(ch.data)))
-
-	// append application data
-	payload = append(payload, ch.data...)
-
-	return payload
+	return ch.buf
 }
 
 func (ch *channelData) print(title string) {
