@@ -1685,7 +1685,7 @@ func (ch *channelData) transport(addr *address) {
 
 	if palloc, ok := allocPool.findByRelay(keygen(peer)); ok {
 		// transport over internal relayed address
-		palloc.server.sendToClientUDP(&net.UDPAddr{IP: addr.IP, Port: addr.Port}, ch.buf)
+		palloc.server.sendToClientUDP(&net.UDPAddr{IP: peer.IP, Port: peer.Port}, ch.buf)
 	} else {
 		// send data to remote address
 		alloc.server.sendToPeer(peer, ch.data)
