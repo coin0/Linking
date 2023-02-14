@@ -1,5 +1,6 @@
 GOPREFIX := GOPATH="$(GOPATH)"
 GOBUILD := ${GOPREFIX} go build
+GOTEST := ${GOPREFIX} go test
 
 all: gobuild
 
@@ -9,3 +10,6 @@ gobuild:
 	GOOS=windows GOARCH=amd64 ${GOBUILD} -ldflags "-X main.Version=$(VERSION)" -a -o ../bin/tperf_win.exe ./client.go
 	GOOS=darwin GOARCH=amd64 ${GOBUILD} -ldflags "-X main.Version=$(VERSION)" -a -o ../bin/tperf_mac.exe ./client.go
 	GOOS=darwin GOARCH=arm64 ${GOBUILD} -ldflags "-X main.Version=$(VERSION)" -a -o ../bin/tperf_m1.exe ./client.go
+
+gotest:
+	GOOS=linux GOARCH=amd64 ${GOTEST} -v stun -coverprofile stun.coverage
