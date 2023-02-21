@@ -20,6 +20,7 @@ import (
 
 const (
 	TURN_MAX_LIFETIME            = 600
+	TURN_INIT_ALLOC_EXPIRY       = 10    // seconds
 	TURN_SRV_MIN_PORT            = 49152
 	TURN_SRV_MAX_PORT            = 65535
 	TURN_SRV_TICKER_INT          = 10    // seconds
@@ -90,6 +91,13 @@ type allockey struct {
 	Port       int
 }
 
+type allocreq struct {
+	// time of initial allocation request
+	time       time.Time
+	// the first nonce generated at server side
+	nonce      string
+}
+
 type portmanager struct {
 	// available and used port list
 	portlist   []atomic.Bool
@@ -101,6 +109,9 @@ type portmanager struct {
 }
 
 type turnpool struct {
+	// nonce map for initial allocation requests
+	requests   *sync.Map
+
 	// allocation map by different index keys
 	relays     map[allockey]*allocation  // relayed address as a key
 	sources    map[allockey]*allocation  // source address as a key
@@ -278,8 +289,30 @@ var (
 		tableLck: &sync.RWMutex{},
 		portman: map[allockey]*portmanager{},
 		portLck: &sync.RWMutex{},
+		requests: &sync.Map{},
 	}
 )
+
+// -------------------------------------------------------------------------------------------------
+
+func init() {
+
+	go func() {
+		ticker := time.NewTicker(time.Second * TURN_INIT_ALLOC_EXPIRY)
+		for {
+			<-ticker.C
+
+			// delete expired nonce for the first allocation attempt
+			now := time.Now()
+			allocPool.requests.Range(func (k, v any) bool {
+				if now.After(v.(*allocreq).time.Add(time.Second * TURN_INIT_ALLOC_EXPIRY)) {
+					allocPool.requests.Delete(k)
+				}
+				return true
+			})
+		}
+	}()
+}
 
 // -------------------------------------------------------------------------------------------------
 
@@ -330,31 +363,20 @@ func genNonce(length int) string {
 }
 
 // an algorithm to generate a nonce for the first ALLOC response when we do not have alloc data saved
-func genFirstNonce(length int) string {
+func genFirstNonce(addr *address, length int) string {
 
-	nonce := []byte(genNonce(length))
-	calc := func(a byte, b byte) byte {
-		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
-	}
+	nonce := genNonce(length)
+	allocPool.requests.Store(keygen(addr), &allocreq{ time: time.Now(), nonce: nonce })
 
-	nonce[0] = calc(nonce[length/2], nonce[length-1])
-	nonce[1] = calc(nonce[length/3], nonce[length-1])
-	nonce[2] = calc(nonce[length/4], nonce[length-1])
-
-	return string(nonce)
+	return nonce
 }
 
-func checkFirstNonce(nonce string) bool {
+func checkFirstNonce(addr *address, nonce string) bool {
 
-	length := len(nonce)
-	calc := func(a byte, b byte) byte {
-		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
-	}
+	req, ok := allocPool.requests.LoadAndDelete(keygen(addr))
 
-	return (length == STUN_NONCE_LENGTH &&
-		nonce[0] == calc(nonce[length/2], nonce[length-1]) &&
-		nonce[1] == calc(nonce[length/3], nonce[length-1]) &&
-		nonce[2] == calc(nonce[length/4], nonce[length-1]))
+	return ok && nonce == req.(*allocreq).nonce &&
+		req.(*allocreq).time.Add(time.Second * TURN_INIT_ALLOC_EXPIRY).After(time.Now())
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -612,7 +634,7 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	username, _, nonce, err := this.getCredential()
 	if err != nil {
 		// handle first alloc request
-		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonceWithCookie(STUN_NONCE_LENGTH),
+		return this.replyUnauth(STUN_ERR_UNAUTHORIZED, genFirstNonceWithCookie(r, STUN_NONCE_LENGTH),
 			"missing long-term credential")
 	}
 
@@ -627,9 +649,9 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	if err != nil {
 		return this.newErrorMessage(STUN_ERR_ALLOC_MISMATCH, err.Error()), nil
 	}
-	// we have a simple algorithm to figure out if this is the subsequent alloc request
-	if !checkFirstNonceWithCookie(nonce) {
-		return this.replyUnauth(STUN_ERR_STALE_NONCE, genFirstNonceWithCookie(STUN_NONCE_LENGTH), "NONCE is expired")
+	// figure out if this is the subsequent alloc request
+	if !checkFirstNonce(r, nonce) {
+		return this.replyUnauth(STUN_ERR_STALE_NONCE, genFirstNonceWithCookie(r, STUN_NONCE_LENGTH), "NONCE is expired")
 	}
 
 	// 3. check allocation

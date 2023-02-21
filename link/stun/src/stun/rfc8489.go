@@ -2,6 +2,7 @@ package stun
 
 import (
 	"fmt"
+	"time"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
@@ -51,31 +52,12 @@ func genNonceWithCookie(length int) string {
 	return cookie + genNonce(STUN_NONCE_LENGTH - len(cookie))
 }
 
-func genFirstNonceWithCookie(length int) string {
+func genFirstNonceWithCookie(addr *address, length int) string {
 
-	nonce := []byte(genNonceWithCookie(length))
-	calc := func(a byte, b byte) byte {
-		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
-	}
+	nonce := genNonceWithCookie(length)
+	allocPool.requests.Store(keygen(addr), &allocreq{ time: time.Now(), nonce: nonce })
 
-	nonce[STUN_NONCE_COOKIE_LENGTH+0] = calc(nonce[length/2+0], nonce[length-1])
-	nonce[STUN_NONCE_COOKIE_LENGTH+1] = calc(nonce[length/2+1], nonce[length-2])
-	nonce[STUN_NONCE_COOKIE_LENGTH+2] = calc(nonce[length/2+2], nonce[length-3])
-
-	return string(nonce)
-}
-
-func checkFirstNonceWithCookie(nonce string) bool {
-
-	length := len(nonce)
-	calc := func(a byte, b byte) byte {
-		return TURN_NONCE_DICT[int(a+b)%len(TURN_NONCE_DICT)]
-	}
-
-	return (length == STUN_NONCE_LENGTH &&
-		nonce[STUN_NONCE_COOKIE_LENGTH+0] == calc(nonce[length/2+0], nonce[length-1]) &&
-		nonce[STUN_NONCE_COOKIE_LENGTH+1] == calc(nonce[length/2+1], nonce[length-2]) &&
-		nonce[STUN_NONCE_COOKIE_LENGTH+2] == calc(nonce[length/2+2], nonce[length-3]))
+	return nonce
 }
 
 // -------------------------------------------------------------------------------------------------
