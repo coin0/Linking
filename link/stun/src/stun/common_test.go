@@ -88,7 +88,16 @@ func Test_Func_process_binding_request_ipv6(t *testing.T) {
 
 // -------------------------------------------------------------------------------------------------
 
-func process_stun_response(buf []byte, addr *address, want int, t *testing.T) {
+func sleep_for_nsec(seconds int, t *testing.T) {
+
+	for i := seconds; i > 0; i-- {
+		fmt.Printf("%d..", i)
+		time.Sleep(time.Second)
+	}
+	fmt.Println("done!")
+}
+
+func process_stun_response(buf []byte, addr *address, want int, t *testing.T) *message {
 
 	resp, err := getMessage(process(buf, addr))
 	if err != nil {
@@ -98,12 +107,13 @@ func process_stun_response(buf []byte, addr *address, want int, t *testing.T) {
 	if code != want {
 		t.Fatalf("expected error: %d, actual code: %d: %s", want, code, errstr)
 	}
+
+	return resp
 }
 
-// create an allocation
-func prepare_allocation(addr *address, t *testing.T) (*message, string) {
+func prepare_allocation(proto, ipfam byte, addr *address, t *testing.T) (*message, string) {
 
-	msg, err := newInitAllocationRequest(PROTO_NUM_UDP)
+	msg, err := newInitAllocationRequest(proto)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +128,7 @@ func prepare_allocation(addr *address, t *testing.T) (*message, string) {
 		t.Fatal("realm or nonce missing")
 	}
 
-	msg, err = newSubAllocationRequest(PROTO_NUM_UDP, ADDR_FAMILY_IPV4, "test", realm, nonce)
+	msg, err = newSubAllocationRequest(proto, ipfam, "test", realm, nonce)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,6 +141,12 @@ func prepare_allocation(addr *address, t *testing.T) (*message, string) {
 	}
 
 	return resp, nonce
+}
+
+// create an allocation
+func prepare_udp_ipv4_allocation(addr *address, t *testing.T) (*message, string) {
+
+	return prepare_allocation(PROTO_NUM_UDP, ADDR_FAMILY_IPV4, addr, t)
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -227,7 +243,7 @@ func Test_Func_process_expired_subsequent_alloc_request(t *testing.T) {
 	}
 
 	// initial allocation has expired
-	time.Sleep(time.Second * TURN_INIT_ALLOC_EXPIRY)
+	sleep_for_nsec(TURN_INIT_ALLOC_EXPIRY, t)
 
 	msg, err = newSubAllocationRequest(PROTO_NUM_UDP, ADDR_FAMILY_IPV4, "test", realm, nonce)
 	if err != nil {
@@ -247,11 +263,11 @@ func Test_Func_process_dup_alloc(t *testing.T) {
 		Port: 4000,
 	}
 
-	msg, _ := prepare_allocation(addr, t)
+	msg, _ := prepare_udp_ipv4_allocation(addr, t)
 	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
 		t.Fatal(err, msg.print4Log())
 	}
-	msg, _ = prepare_allocation(addr, t)
+	msg, _ = prepare_udp_ipv4_allocation(addr, t)
 	if code, errstr, _ := msg.getAttrErrorCode(); code != STUN_ERR_ALLOC_MISMATCH {
 		t.Fatalf("dup allocation returns unexpected error code: %d: %s", code, errstr)
 	}
@@ -267,7 +283,7 @@ func Test_Func_process_refresh_0(t *testing.T) {
 		Port: 4000,
 	}
 
-	msg, nonce := prepare_allocation(addr, t)
+	msg, nonce := prepare_udp_ipv4_allocation(addr, t)
 	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
 		t.Fatal(err, msg.print4Log())
 	}
@@ -275,13 +291,13 @@ func Test_Func_process_refresh_0(t *testing.T) {
 	refresh, _ := newRefreshRequest(0, "test", "abcdef", "test", nonce)
 	process_stun_response(refresh.buffer(), addr, 0, t)
 
-	msg, _ = prepare_allocation(addr, t)
+	msg, _ = prepare_udp_ipv4_allocation(addr, t)
 	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func Test_Func_process_refresh_2(t *testing.T) {
+func Test_Func_process_refresh_5(t *testing.T) {
 
 	addr := &address{
 		Proto: NET_TLS,
@@ -289,16 +305,18 @@ func Test_Func_process_refresh_2(t *testing.T) {
 		Port: 4000,
 	}
 
-	msg, nonce := prepare_allocation(addr, t)
+	msg, nonce := prepare_udp_ipv4_allocation(addr, t)
 	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
 		t.Fatal(err, msg.print4Log())
 	}
 
-	refresh, _ := newRefreshRequest(2, "test", "abcdef", "test", nonce)
+	sleep_for_nsec(1, t)
+
+	refresh, _ := newRefreshRequest(5, "test", "abcdef", "test", nonce)
 	process_stun_response(refresh.buffer(), addr, 0, t)
 
-	time.Sleep(time.Second * 3)
+	sleep_for_nsec(10, t)
 
 	refresh, _ = newRefreshRequest(0, "test", "abcdef", "test", nonce)
-	process_stun_response(refresh.buffer(), addr, 437, t)
+	process_stun_response(refresh.buffer(), addr, STUN_ERR_ALLOC_MISMATCH, t)
 }
