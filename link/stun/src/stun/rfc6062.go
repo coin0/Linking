@@ -476,9 +476,8 @@ func (svr *relayserver) sendToClientTCP(peerConn net.Conn, id uint32) {
 
 	// wait here for CONNECTION-BIND to establish client data connection
 	// otherwise we do not read any content in TCP buffer
-	ticker := time.NewTicker(time.Second * TCP_RELAY_MAX_CONN_TIMEOUT)
 	select {
-	case <-ticker.C:
+	case <-time.After(time.Second * TCP_RELAY_MAX_CONN_TIMEOUT):
 		Warn("[%s] connection bind timeout, id=%d", svr.allocRef.key, info.id)
 		return // close this peer connection due to timeout
 	case <-info.connBound: break
