@@ -324,12 +324,15 @@ func keygen(r *address) allockey {
 		IPv4:  true,
 	}
 
-	if r.IP.To4() == nil {
+	ip := r.IP.To4()
+	if ip == nil {
+		// ipv6
+		ip = r.IP
 		key.IPv4 = false
 	}
 
-	for i := 0; i + 4 <= len(r.IP) && i + 4 <= 16; i += 4 {
-		key.IP[i/4] = binary.BigEndian.Uint32(r.IP[i:])
+	for i := 0; i + 4 <= len(ip) && i + 4 <= 16; i += 4 {
+		key.IP[i/4] = binary.BigEndian.Uint32(ip[i:])
 	}
 
 	return key
