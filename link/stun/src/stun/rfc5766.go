@@ -1347,6 +1347,15 @@ func (svr *relayserver) spawn() error {
 		// poll fds
 		ticker := time.NewTicker(time.Second * TURN_SRV_TICKER_INT)
 		timer := time.NewTimer(time.Second * time.Duration(svr.allocRef.lifetime))
+		tryRefresh := func() {
+			if seconds, err := svr.allocRef.getRestLife(); err == nil {
+				timer.Stop()
+				timer.Reset(time.Second * time.Duration(seconds))
+				return
+			}
+			svr.conn.SetDeadline(time.Now())
+			svr.allocRef.removeFromPool()
+		}
 		for quit := false; !quit; {
 			select {
 			case <-ticker.C:
@@ -1365,15 +1374,10 @@ func (svr *relayserver) spawn() error {
 				)
 				clientIn, clientOut, peerIn, peerOut = cin, cout, pin, pout
 				last = now
-			case <-timer.C:
-				if seconds, err := svr.allocRef.getRestLife(); err == nil {
-					timer = time.NewTimer(time.Second * time.Duration(seconds))
-					break
-				}
-				svr.conn.SetDeadline(time.Now())
-				svr.allocRef.removeFromPool()
-			case <-ech:
-				quit = true
+				// refresh lifetime
+				tryRefresh()
+			case <-timer.C: tryRefresh()
+			case <-ech: quit = true
 			}
 		}
 
