@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+var (
+	testSkipSleep = false
+)
+
 // -------------------------------------------------------------------------------------------------
 
 func init() {
@@ -90,6 +94,9 @@ func Test_Func_process_binding_request_ipv6(t *testing.T) {
 
 func sleep_for_nsec(seconds int, t *testing.T) {
 
+	if testSkipSleep {
+		t.SkipNow()
+	}
 	for i := seconds; i > 0; i-- {
 		fmt.Printf("%d..", i)
 		time.Sleep(time.Second)
@@ -319,4 +326,36 @@ func Test_Func_process_refresh_5(t *testing.T) {
 
 	refresh, _ = newRefreshRequest(0, "test", "abcdef", "test", nonce)
 	process_stun_response(refresh.buffer(), addr, STUN_ERR_ALLOC_MISMATCH, t)
+}
+
+// -------------------------------------------------------------------------------------------------
+
+func prepare_tcp_ipv4_allocation(addr *address, t *testing.T) (*message, string) {
+
+	return prepare_allocation(PROTO_NUM_TCP, ADDR_FAMILY_IPV4, addr, t)
+}
+
+func Test_Func_process_connect_request(t *testing.T) {
+
+	addr := &address{
+		Proto: NET_TLS,
+		Port: 12345,
+		IP: net.ParseIP("::ffff:7fff:1"),
+	}
+
+	msg, nonce := prepare_tcp_ipv4_allocation(addr, t)
+	relay, err := msg.getAttrXorRelayedAddr()
+	if err != nil {
+		t.Fatal(err, msg.print4Log())
+	}
+
+	msg, err = newConnectRequest("test", "abcdef", "test", nonce, relay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := process_stun_response(msg.buffer(), addr, 0, t)
+	_, err = resp.getAttrConnID()
+	if err != nil {
+		t.Fatal(err)
+	}
 }
