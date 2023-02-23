@@ -100,6 +100,41 @@ func process_stun_response(buf []byte, addr *address, want int, t *testing.T) {
 	}
 }
 
+// create an allocation
+func prepare_allocation(addr *address, t *testing.T) (*message, string) {
+
+	msg, err := newInitAllocationRequest(PROTO_NUM_UDP)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := getMessage(process(msg.buffer(), addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	realm, _ := resp.getAttrRealm()
+	nonce, _ := resp.getAttrNonce()
+	if len(realm) == 0 || len(nonce) == 0 {
+		t.Fatal("realm or nonce missing")
+	}
+
+	msg, err = newSubAllocationRequest(PROTO_NUM_UDP, ADDR_FAMILY_IPV4, "test", realm, nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := md5.Sum([]byte(fmt.Sprintf("test:%s:abcdef", realm)))
+	msg.length += msg.addAttrMsgIntegrity(string(key[0:16]))
+
+	resp, err = getMessage(process(msg.buffer(), addr))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return resp, nonce
+}
+
+// -------------------------------------------------------------------------------------------------
+
 func Test_Func_process_initial_alloc_request(t *testing.T) {
 
 	addr := &address{
@@ -139,7 +174,7 @@ func Test_Func_process_subsequent_alloc_request(t *testing.T) {
 
 	addr := &address{
 		Proto: NET_TLS,
-		IP: net.ParseIP("240a:d1:4000:1006:5::11"),
+		IP: net.ParseIP("240a:d1:4000:1006:5::13"),
 		Port: 4000,
 	}
 
@@ -172,7 +207,7 @@ func Test_Func_process_expired_subsequent_alloc_request(t *testing.T) {
 
 	addr := &address{
 		Proto: NET_TLS,
-		IP: net.ParseIP("240a:d1:4000:1006:5::11"),
+		IP: net.ParseIP("240a:d1:4000:1006:5::14"),
 		Port: 4000,
 	}
 
@@ -201,5 +236,69 @@ func Test_Func_process_expired_subsequent_alloc_request(t *testing.T) {
 	key := md5.Sum([]byte(fmt.Sprintf("test:%s:abcdef", realm)))
 	msg.length += msg.addAttrMsgIntegrity(string(key[0:16]))
 
-	process_stun_response(msg.buffer(), addr, 437, t)
+	process_stun_response(msg.buffer(), addr, STUN_ERR_STALE_NONCE, t)
+}
+
+func Test_Func_process_dup_alloc(t *testing.T) {
+
+	addr := &address{
+		Proto: NET_TLS,
+		IP: net.ParseIP("240a:d1:4000:1006:5::15"),
+		Port: 4000,
+	}
+
+	msg, _ := prepare_allocation(addr, t)
+	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
+		t.Fatal(err, msg.print4Log())
+	}
+	msg, _ = prepare_allocation(addr, t)
+	if code, errstr, _ := msg.getAttrErrorCode(); code != STUN_ERR_ALLOC_MISMATCH {
+		t.Fatalf("dup allocation returns unexpected error code: %d: %s", code, errstr)
+	}
+}
+
+// -------------------------------------------------------------------------------------------------
+
+func Test_Func_process_refresh_0(t *testing.T) {
+
+	addr := &address{
+		Proto: NET_TLS,
+		IP: net.ParseIP("240a:d1:4000:1006:5::16"),
+		Port: 4000,
+	}
+
+	msg, nonce := prepare_allocation(addr, t)
+	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
+		t.Fatal(err, msg.print4Log())
+	}
+
+	refresh, _ := newRefreshRequest(0, "test", "abcdef", "test", nonce)
+	process_stun_response(refresh.buffer(), addr, 0, t)
+
+	msg, _ = prepare_allocation(addr, t)
+	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func Test_Func_process_refresh_2(t *testing.T) {
+
+	addr := &address{
+		Proto: NET_TLS,
+		IP: net.ParseIP("240a:d1:4000:1006:5::17"),
+		Port: 4000,
+	}
+
+	msg, nonce := prepare_allocation(addr, t)
+	if _, err := msg.getAttrXorRelayedAddr(); err != nil {
+		t.Fatal(err, msg.print4Log())
+	}
+
+	refresh, _ := newRefreshRequest(2, "test", "abcdef", "test", nonce)
+	process_stun_response(refresh.buffer(), addr, 0, t)
+
+	time.Sleep(time.Second * 3)
+
+	refresh, _ = newRefreshRequest(0, "test", "abcdef", "test", nonce)
+	process_stun_response(refresh.buffer(), addr, 437, t)
 }
