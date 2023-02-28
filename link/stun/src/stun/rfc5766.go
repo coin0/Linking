@@ -1387,6 +1387,7 @@ func (svr *relayserver) spawn() error {
 		// server socket has been closed
 		Info("[%s] allocation expired", svr.allocRef.key)
 		allocPool.freePort(&svr.allocRef.relay)
+		closeConn(&svr.allocRef.source)
 		svr.status = TURN_RELAY_CLOSED
 	}(svr)
 

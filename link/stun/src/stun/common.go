@@ -548,6 +548,23 @@ func sendTo(addr *address, data []byte) (int, error) {
 	return 0, fmt.Errorf("protocol not supported")
 }
 
+func closeTCP(r *address) {
+
+	conn := tcpConns.get(r)
+	if conn == nil {
+		return
+	}
+	conn.Close()
+}
+
+func closeConn(addr *address) {
+
+	switch addr.Proto {
+	case NET_TCP, NET_TLS:
+		closeTCP(addr)
+	}
+}
+
 func (this *message) process(r *address) (*message, error) {
 
 	// discard messages with incorrect fingerprints
