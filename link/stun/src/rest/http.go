@@ -9,7 +9,17 @@ import (
 	"time"
 	"fmt"
 	"util/dbg"
+	. "util/log"
 )
+
+// -------------------------------------------------------------------------------------------------
+
+func logReq(req *http.Request) {
+
+	if req != nil {
+		Info("rest: %s %s", req.Method, req.URL)
+	}
+}
 
 // -------------------------------------------------------------------------------------------------
 
@@ -17,6 +27,7 @@ func ListenHTTP(ip, port string) error {
 
 	// restful APIs for service management
 	http.HandleFunc("/service/pid", handleServicePid)
+	http.HandleFunc("/service", handleService)
 
 	// for debugging
 	http.HandleFunc("/get/alloc", httpGetAlloc)

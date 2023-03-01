@@ -9,6 +9,8 @@ import (
 
 func handleServicePid(w http.ResponseWriter, req *http.Request) {
 
+	logReq(req)
+
 	// only support GET /service/pid
 	if req.Method != http.MethodGet {
 		w.WriteHeader(http.StatusBadRequest)
@@ -18,4 +20,15 @@ func handleServicePid(w http.ResponseWriter, req *http.Request) {
 
 	resp := fmt.Sprintf(`{"pid":%d}`, os.Getpid())
 	io.WriteString(w, resp)
+}
+
+func handleService(w http.ResponseWriter, req *http.Request) {
+
+	logReq(req)
+
+	switch req.Method {
+	case http.MethodDelete:
+		// with empty response
+		os.Exit(0)
+	}
 }
