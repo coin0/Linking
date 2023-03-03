@@ -10,7 +10,48 @@ import (
 	"fmt"
 	"util/dbg"
 	. "util/log"
+	"regexp"
+	"context"
 )
+
+// -------------------------------------------------------------------------------------------------
+
+type muxer struct {
+	routes    map[*regexp.Regexp]http.HandlerFunc
+}
+
+func NewMuxer() *muxer {
+
+	return &muxer{
+		routes: map[*regexp.Regexp]http.HandlerFunc{},
+	}
+}
+
+func (mux *muxer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	if !mux.route(w, r) {
+		http.NotFound(w, r)
+	}
+}
+
+func (mux *muxer) Register(pattern string, handler http.HandlerFunc) {
+
+	mux.routes[regexp.MustCompile("^" + pattern + "$")] = handler
+}
+
+func (mux *muxer) route(w http.ResponseWriter, r *http.Request) bool {
+
+	for regex, handler := range mux.routes {
+		matches := regex.FindStringSubmatch(r.URL.Path)
+		if len(matches) > 0 {
+			ctx := context.WithValue(r.Context(), 0, matches[1:])
+			handler(w, r.WithContext(ctx))
+			return true
+		}
+	}
+
+	return false
+}
 
 // -------------------------------------------------------------------------------------------------
 
@@ -25,17 +66,26 @@ func logReq(req *http.Request) {
 
 func ListenHTTP(ip, port string) error {
 
+	mux := NewMuxer()
+
 	// restful APIs for service management
-	http.HandleFunc("/service/pid", handleServicePid)
-	http.HandleFunc("/service", handleService)
+	mux.Register("/service/pid", handleServicePid)
+	mux.Register("/service", handleService)
+
+	// APIs for allocation management
+	mux.Register("/allocation", handleAllocation)
+	mux.Register("/allocation/([^/]+)/lifetime", handleAllocationLifetime)
+	mux.Register("/allocation/([^/]+)/permission", handleAllocationPermission)
+	mux.Register("/allocation/([^/]+)/channel", handleAllocationChannel)
 
 	// for debugging
-	http.HandleFunc("/get/alloc", httpGetAlloc)
-	http.HandleFunc("/get/user", httpGetUser)
-	http.HandleFunc("/set/user", httpSetUser)
-	http.HandleFunc("/get/prof", httpGetProf)
-	http.HandleFunc("/set/prof", httpSetProf)
-	err := http.ListenAndServe(ip + ":" + port, nil)
+	mux.Register("/get/alloc", httpGetAlloc)
+	mux.Register("/get/user", httpGetUser)
+	mux.Register("/set/user", httpSetUser)
+	mux.Register("/get/prof", httpGetProf)
+	mux.Register("/set/prof", httpSetProf)
+
+	err := http.ListenAndServe(ip + ":" + port, mux)
 	return err
 }
 
