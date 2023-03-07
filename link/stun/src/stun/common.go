@@ -8,6 +8,8 @@ import (
 	"conf"
 	"crypto/tls"
 	. "util/log"
+	"context"
+	"util/reuse"
 )
 
 const (
@@ -211,14 +213,29 @@ func ListenTCP(network, ip, port string) error {
 
 func ListenUDP(network, ip, port string) error {
 
+	sem := make(chan bool, 3)
+	for {
+		sem <- true
+		go handleUDP(network, ip, port, sem)
+	}
+}
+
+func handleUDP(network, ip, port string, sem chan bool) error {
+
+	defer func() { <- sem }()
+
 	udp, err := net.ResolveUDPAddr(network, ip + ":" + port)
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
-	udpConn, err := net.ListenUDP(network, udp)
+	cfg := net.ListenConfig{
+		Control: reuse.Control,
+	}
+	l, err := cfg.ListenPacket(context.Background(), network, udp.String())
 	if err != nil {
 		return fmt.Errorf("listen UDP: %s", err)
 	}
+	udpConn, _ := l.(*net.UDPConn)
 	defer udpConn.Close()
 	if network == "udp4" {
 		udp4Conn = udpConn
