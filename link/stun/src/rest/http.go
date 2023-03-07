@@ -68,15 +68,32 @@ func ListenHTTP(ip, port string) error {
 
 	mux := NewMuxer()
 
-	// restful APIs for service management
+	// service
 	mux.Register("/service/pid", handleServicePid)
 	mux.Register("/service", handleService)
 
-	// APIs for allocation management
+	// allocation
 	mux.Register("/allocation", handleAllocation)
 	mux.Register("/allocation/([^/]+)/lifetime", handleAllocationLifetime)
 	mux.Register("/allocation/([^/]+)/permission", handleAllocationPermission)
 	mux.Register("/allocation/([^/]+)/channel", handleAllocationChannel)
+
+	// credential
+	mux.Register("/credential/settings", handleCredentialSettings)
+	mux.Register("/credential/settings/cleanuptime", handleCredentialSettingsCleanuptime)
+	mux.Register("/credential/settings/maxusers", handleCredentialSettingsMaxusers)
+	mux.Register("/credential/user", handleCredentialUser)
+	mux.Register("/credential/user/([^/]+/password)", handleCredentialUserPassword)
+	mux.Register("/credential/user/([^/]+/expiry)", handleCredentialUserExpiry)
+	mux.Register("/credential/user/([^/]+/enable)", handleCredentialUserEnable)
+	mux.Register("/credential/user/([^/]+/disable)", handleCredentialUserDisable)
+
+	// connection
+	mux.Register("/connection/client", handleConnectionClient)
+	mux.Register("/connection/data", handleConnectionData)
+
+	// port
+	mux.Register("/port/relay", handlePortRelay)
 
 	// for debugging
 	mux.Register("/get/alloc", httpGetAlloc)
