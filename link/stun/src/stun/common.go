@@ -8,8 +8,6 @@ import (
 	"conf"
 	"crypto/tls"
 	. "util/log"
-	"context"
-	"util/reuse"
 )
 
 const (
@@ -37,7 +35,7 @@ const (
 	// socket buffer size
 	TCP_SO_RECVBUF_SIZE  = 87380 // bytes
 	TCP_SO_SNDBUF_SIZE   = 65535 // bytes
-	UDP_SO_RECVBUF_SIZE  = 1024 * 1024 * 4 // 4MB
+	UDP_SO_RECVBUF_SIZE  = 1024 * 1024 * 8 // 8MB
 	UDP_SO_SNDBUF_SIZE   = 1024 * 1024 * 4 // 4MB
 
 	DEFAULT_MTU        = 1500
@@ -213,29 +211,15 @@ func ListenTCP(network, ip, port string) error {
 
 func ListenUDP(network, ip, port string) error {
 
-	sem := make(chan bool, 3)
-	for {
-		sem <- true
-		go handleUDP(network, ip, port, sem)
-	}
-}
-
-func handleUDP(network, ip, port string, sem chan bool) error {
-
-	defer func() { <- sem }()
-
 	udp, err := net.ResolveUDPAddr(network, ip + ":" + port)
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
-	cfg := net.ListenConfig{
-		Control: reuse.Control,
-	}
-	l, err := cfg.ListenPacket(context.Background(), network, udp.String())
+	udpConn, err := net.ListenUDP(network, udp)
 	if err != nil {
 		return fmt.Errorf("listen UDP: %s", err)
 	}
-	udpConn, _ := l.(*net.UDPConn)
+
 	defer udpConn.Close()
 	if network == "udp4" {
 		udp4Conn = udpConn
@@ -247,38 +231,56 @@ func handleUDP(network, ip, port string, sem chan bool) error {
 	udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
 	udpConn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
 
-	buf := make([]byte, DEFAULT_MTU)
+	sem := make(chan bool, 5)
 	for {
-		nr, rm, err := udpConn.ReadFromUDP(buf)
-		if err != nil {
-			return fmt.Errorf("read UDP: %s", err)
+		sem <- true
+		handleUDP(udpConn, sem)
+	}
+
+	return nil
+}
+
+func handleUDP(udpConn *net.UDPConn, sem chan bool) {
+
+	go func() error {
+
+		defer func() { <- sem }()
+
+		buf := make([]byte, DEFAULT_MTU)
+		for {
+			nr, rm, err := udpConn.ReadFromUDP(buf)
+			if err != nil {
+				return fmt.Errorf("read UDP: %s", err)
+			}
+
+			func(req []byte, r *net.UDPAddr) {
+
+				// must convert to IPv4, sometimes it's in the form of IPv6
+				var ip net.IP
+				if ip = r.IP.To4(); ip == nil {
+					ip = r.IP // IPv6
+				}
+
+				addr := &address{
+					IP:   ip,
+					Port: r.Port,
+					Proto: NET_UDP,
+				}
+
+				resp := process(req, addr)
+				if resp == nil {
+					return
+				}
+
+				_, err = udpConn.WriteToUDP(resp, r)
+				if err != nil {
+					return
+				}
+			}(buf[:nr], rm)
 		}
 
-		func(req []byte, r *net.UDPAddr) {
-
-			// must convert to IPv4, sometimes it's in the form of IPv6
-			var ip net.IP
-			if ip = r.IP.To4(); ip == nil {
-				ip = r.IP // IPv6
-			}
-
-			addr := &address{
-				IP:   ip,
-				Port: r.Port,
-				Proto: NET_UDP,
-			}
-
-			resp := process(req, addr)
-			if resp == nil {
-				return
-			}
-
-			_, err = udpConn.WriteToUDP(resp, r)
-			if err != nil {
-				return
-			}
-		}(buf[:nr], rm)
-	}
+		return nil
+	}()
 }
 
 func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
