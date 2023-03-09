@@ -161,6 +161,9 @@ type allocation struct {
 	// client ip and port info
 	source      address
 
+	// client control connection
+	conn        net.Conn
+
 	// relayed transport address family
 	ipv4Relay   bool
 
@@ -631,7 +634,7 @@ func newRefreshRequest(lifetime uint32, username, password, realm, nonce string)
 	return msg, nil
 }
 
-func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
+func (this *message) doAllocationRequest(r *address, conn net.Conn) (msg *message, err error) {
 
 	// 1. long-term credential
 	username, _, nonce, err := this.getCredential()
@@ -648,7 +651,7 @@ func (this *message) doAllocationRequest(r *address) (msg *message, err error) {
 	}
 
 	// 2. find existing allocations
-	alloc, err := newAllocation(r)
+	alloc, err := newAllocation(r, conn)
 	if err != nil {
 		return this.newErrorMessage(STUN_ERR_ALLOC_MISMATCH, err.Error()), nil
 	}
@@ -1034,7 +1037,7 @@ func (this *message) replyUnauth(code int, nonce, reason string) (*message, erro
 
 // -------------------------------------------------------------------------------------------------
 
-func newAllocation(r *address) (*allocation, error) {
+func newAllocation(r *address, conn net.Conn) (*allocation, error) {
 
 	key := keygen(r)
 	if _, ok := allocPool.find(key); ok {
@@ -1044,6 +1047,7 @@ func newAllocation(r *address) (*allocation, error) {
 	return &allocation{
 		key:      key,
 		source:   *r,
+		conn:     conn,
 		perms:    map[string]time.Time{},
 		permsLck: &sync.RWMutex{},
 		channels: map[string]*channel{},
@@ -1252,6 +1256,43 @@ func (alloc *allocation) findChanByPeer(peer *address) (uint16, error) {
 	}
 
 	return ch.number, nil
+}
+
+func (alloc *allocation) sendToClient(data []byte) (n int, err error) {
+
+	if alloc.conn == nil {
+		return 0, fmt.Errorf("nil conn")
+	}
+
+	switch alloc.source.Proto {
+	case NET_UDP:
+		// composite client UDP address
+		r := &net.UDPAddr{
+			IP:   alloc.source.IP,
+			Port: alloc.source.Port,
+		}
+
+		udpConn, ok := alloc.conn.(*net.UDPConn)
+		if !ok {
+			return 0, fmt.Errorf("udp conn mismatch")
+		}
+		n, err = udpConn.WriteToUDP(data, r)
+	case NET_TCP, NET_TLS:
+		// channel data over tcp must roundup to 32 bits
+		roundup := 0
+		if len(data) % 4 != 0 {
+			roundup = 4 - len(data) % 4
+		}
+		pad := make([]byte, roundup)
+		data = append(data, pad...)
+
+		// for TCP relay, this function is only to send data over control connection
+		n, err = alloc.conn.Write(data)
+	default:
+		return 0, fmt.Errorf("protocol not supported")
+	}
+
+	return
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -1507,7 +1548,7 @@ func (svr *relayserver) sendToClientUDP(peer *net.UDPAddr, data []byte) {
 		buf = data
 	}
 
-	if n, err := sendTo(&svr.allocRef.source, buf); err != nil {
+	if n, err := svr.allocRef.sendToClient(buf); err != nil {
 		return
 	} else {
 		svr.allocRef.clientbw.Out(n)

@@ -431,7 +431,7 @@ func (svr *relayserver) recvFromPeerTCP(ech chan error) {
 
 			// send CONNECTION-ATTEMPT indication to client
 			msg, _ := newConnAttemptIndication(id, peer)
-			if _, err := sendTo(&svr.allocRef.source, msg.buffer()); err != nil {
+			if _, err := svr.allocRef.sendToClient(msg.buffer()); err != nil {
 				Error("[%s] send conn-attempt: %s, peer=%s", svr.allocRef.key, err, peer)
 				tcpConn.Close()
 				return

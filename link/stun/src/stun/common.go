@@ -66,7 +66,6 @@ type dummyConn struct {
 }
 
 var (
-	udp4Conn, udp6Conn *net.UDPConn
 	tcpConns = &tcpPool{
 		conns: map[allockey]net.Conn{},
 		lck:   &sync.Mutex{},
@@ -247,11 +246,6 @@ func handleUDP(network, ip, port string, sem chan bool) {
 		udpConn, _ := l.(*net.UDPConn)
 
 		defer udpConn.Close()
-		if network == "udp4" {
-			udp4Conn = udpConn
-		} else {
-			udp6Conn = udpConn
-		}
 
 		// set UDP socket options
 		udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
@@ -278,7 +272,7 @@ func handleUDP(network, ip, port string, sem chan bool) {
 					Proto: NET_UDP,
 				}
 
-				resp := process(req, addr)
+				resp := process(req, addr, udpConn)
 				if resp == nil {
 					return
 				}
@@ -345,7 +339,7 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 				copy(rest, more)
 				rest = rest[:len(more)]
 
-				if resp := process(buf[:len(one)], addr); resp != nil {
+				if resp := process(buf[:len(one)], addr, conn); resp != nil {
 					if _, err = conn.Write(resp); err != nil {
 						Info("[%s] handleTCP: write: %s", keygen(addr), err)
 						return
@@ -392,7 +386,7 @@ func demuxTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) (conn net.Conn, addr *a
 		// process this request as the initial allocation
 		// possible valid requests are ALLOCATE and CONNECTION-BIND
 		if one, _, err := decodeTCP(dummy.readBuf); err == nil {
-			if resp := process(one, addr); resp != nil {
+			if resp := process(one, addr, conn); resp != nil {
 				conn.Write(resp)
 			}
 		}
@@ -446,7 +440,7 @@ func decodeTCP(req []byte) ([]byte, []byte, error) {
 	return nil, []byte{}, fmt.Errorf("bad message type")
 }
 
-func process(req []byte, addr *address) []byte {
+func process(req []byte, addr *address, conn net.Conn) []byte {
 
 	if len(req) == 0 {
 		return nil
@@ -460,7 +454,7 @@ func process(req []byte, addr *address) []byte {
 	switch req[0] & MSG_TYPE_MASK {
 	case MSG_TYPE_STUN_MSG:
 		// handle stun messages
-		return processStunMessage(req, addr)
+		return processStunMessage(req, addr, conn)
 	case MSG_TYPE_CHANNELDATA:
 		// handle channelData
 		processChannelData(req, addr)
@@ -469,7 +463,7 @@ func process(req []byte, addr *address) []byte {
 	return nil
 }
 
-func processStunMessage(req []byte, addr *address) []byte {
+func processStunMessage(req []byte, addr *address, conn net.Conn) []byte {
 
 	// dbg.PrintMem(req, 8)
 
@@ -482,7 +476,7 @@ func processStunMessage(req []byte, addr *address) []byte {
 
 	Info("[%s] %s", keygen(addr), msg.print4Log())
 
-	msg, err = msg.process(addr)
+	msg, err = msg.process(addr, conn)
 	if err != nil {
 		return nil
 	}
@@ -517,67 +511,6 @@ func processChannelData(req []byte, addr *address) {
 
 // -------------------------------------------------------------------------------------------------
 
-func sendUDP(addr *address, data []byte) (int, error) {
-
-	r := &net.UDPAddr{
-		IP:   addr.IP,
-		Port: addr.Port,
-	}
-
-	var udpConn *net.UDPConn
-	if addr.IP.To4() == nil {
-		udpConn = udp6Conn
-	} else {
-		udpConn = udp4Conn
-	}
-
-	if udpConn == nil {
-		return 0, fmt.Errorf("connection not ready")
-	}
-
-	n, err := udpConn.WriteToUDP(data, r)
-	if err != nil {
-		return 0, err
-	}
-
-	return n, nil
-}
-
-func sendTCP(r *address, data []byte) (int, error) {
-
-	conn := tcpConns.get(r)
-	if conn == nil {
-		return 0, fmt.Errorf("tcp connection not found")
-	}
-
-	n, err := conn.Write(data)
-	if err != nil {
-		return 0, err
-	}
-
-	return n, nil
-}
-
-// for TCP relay, this function is only to send data over control connection
-func sendTo(addr *address, data []byte) (int, error) {
-
-	switch addr.Proto {
-	case NET_UDP:
-		return sendUDP(addr, data)
-	case NET_TCP, NET_TLS:
-		// channel data over tcp must roundup to 32 bits
-		roundup := 0
-		if len(data) % 4 != 0 {
-			roundup = 4 - len(data) % 4
-		}
-		pad := make([]byte, roundup)
-		data = append(data, pad...)
-
-		return sendTCP(addr, data)
-	}
-	return 0, fmt.Errorf("protocol not supported")
-}
-
 func closeTCP(r *address) {
 
 	conn := tcpConns.get(r)
@@ -595,7 +528,7 @@ func closeConn(addr *address) {
 	}
 }
 
-func (this *message) process(r *address) (*message, error) {
+func (this *message) process(r *address, conn net.Conn) (*message, error) {
 
 	// discard messages with incorrect fingerprints
 	if err := this.checkFingerprint(); err != nil {
@@ -605,7 +538,7 @@ func (this *message) process(r *address) (*message, error) {
 
 	// special handlers
 	switch this.method | this.encoding {
-	case STUN_MSG_METHOD_ALLOCATE | STUN_MSG_REQUEST: return this.doAllocationRequest(r)
+	case STUN_MSG_METHOD_ALLOCATE | STUN_MSG_REQUEST: return this.doAllocationRequest(r, conn)
 	case STUN_MSG_METHOD_BINDING | STUN_MSG_REQUEST:  return this.doBindingRequest(r)
 	case STUN_MSG_METHOD_CONN_BIND | STUN_MSG_REQUEST: return this.doConnBindRequest(r)
 	}
