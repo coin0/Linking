@@ -214,9 +214,12 @@ func ListenTCP(network, ip, port string) error {
 
 func ListenUDP(network, ip, port string) error {
 
-	cpus := runtime.NumCPU()
-	sem := make(chan bool, cpus)
-	Info("initialize %d threads listening on %s://%s:%s", cpus, network, ip, port)
+	n := runtime.NumCPU() / 3
+	if n < 1 {
+		n = 1
+	}
+	sem := make(chan bool, n)
+	Info("initialize %d threads listening on %s://%s:%s", n, network, ip, port)
 
 	for {
 		sem <- true
