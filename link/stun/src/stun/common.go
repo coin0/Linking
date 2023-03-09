@@ -8,6 +8,9 @@ import (
 	"conf"
 	"crypto/tls"
 	. "util/log"
+	"context"
+	"util/reuse"
+	"runtime"
 )
 
 const (
@@ -35,8 +38,8 @@ const (
 	// socket buffer size
 	TCP_SO_RECVBUF_SIZE  = 87380 // bytes
 	TCP_SO_SNDBUF_SIZE   = 65535 // bytes
-	UDP_SO_RECVBUF_SIZE  = 1024 * 1024 * 8 // 8MB
-	UDP_SO_SNDBUF_SIZE   = 1024 * 1024 * 4 // 4MB
+	UDP_SO_RECVBUF_SIZE  = 1024 * 1024 * 2 // 2MB
+	UDP_SO_SNDBUF_SIZE   = 1024 * 1024 * 2 // 2MB
 
 	DEFAULT_MTU        = 1500
 )
@@ -197,6 +200,7 @@ func ListenTCP(network, ip, port string) error {
 	if err != nil {
 		return fmt.Errorf("listen TCP: %s", err)
 	}
+	Info("listening on %s://%s:%s", network, ip, port)
 	defer l.Close()
 
 	for {
@@ -211,40 +215,47 @@ func ListenTCP(network, ip, port string) error {
 
 func ListenUDP(network, ip, port string) error {
 
-	udp, err := net.ResolveUDPAddr(network, ip + ":" + port)
-	if err != nil {
-		return fmt.Errorf("resolve UDP: %s", err)
-	}
-	udpConn, err := net.ListenUDP(network, udp)
-	if err != nil {
-		return fmt.Errorf("listen UDP: %s", err)
-	}
+	cpus := runtime.NumCPU()
+	sem := make(chan bool, cpus)
+	Info("initialize %d threads listening on %s://%s:%s", cpus, network, ip, port)
 
-	defer udpConn.Close()
-	if network == "udp4" {
-		udp4Conn = udpConn
-	} else {
-		udp6Conn = udpConn
-	}
-
-	// set UDP socket options
-	udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
-	udpConn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
-
-	sem := make(chan bool, 5)
 	for {
 		sem <- true
-		handleUDP(udpConn, sem)
+		handleUDP(network, ip, port, sem)
 	}
 
 	return nil
 }
 
-func handleUDP(udpConn *net.UDPConn, sem chan bool) {
+func handleUDP(network, ip, port string, sem chan bool) {
 
 	go func() error {
 
 		defer func() { <- sem }()
+
+		udp, err := net.ResolveUDPAddr(network, ip + ":" + port)
+		if err != nil {
+			return fmt.Errorf("resolve UDP: %s", err)
+		}
+		cfg := net.ListenConfig{
+			Control: reuse.Control,
+		}
+		l, err := cfg.ListenPacket(context.Background(), network, udp.String())
+		if err != nil {
+			return fmt.Errorf("listen UDP: %s", err)
+		}
+		udpConn, _ := l.(*net.UDPConn)
+
+		defer udpConn.Close()
+		if network == "udp4" {
+			udp4Conn = udpConn
+		} else {
+			udp6Conn = udpConn
+		}
+
+		// set UDP socket options
+		udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
+		udpConn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
 
 		buf := make([]byte, DEFAULT_MTU)
 		for {
