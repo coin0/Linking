@@ -140,7 +140,7 @@ func decodeErrorCode(attr *attribute) (code int, errStr string, err error) {
 
 	// Class * 100 + Number = code (https://tools.ietf.org/html/rfc5389#section-15.6)
 	code = int(attr.value[2]) * 100 + int(attr.value[3])
-	errStr = string(attr.value[4:attr.length-4])
+	errStr = string(attr.value[4:attr.length])
 
 	return code, errStr, nil
 }
