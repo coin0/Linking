@@ -477,7 +477,9 @@ func processStunMessage(req []byte, addr *address, conn net.Conn) []byte {
 
 	// msg.print("request") // request
 
-	Info("[%s] %s", keygen(addr), msg.print4Log())
+	if !msg.isIndication() {
+		Info("[%s] %s", keygen(addr), msg.print4Log())
+	}
 
 	msg, err = msg.process(addr, conn)
 	if err != nil {
@@ -486,10 +488,6 @@ func processStunMessage(req []byte, addr *address, conn net.Conn) []byte {
 
 	if msg == nil {
 		return nil // no response
-	}
-
-	if msg.isIndication() {
-		return nil
 	}
 
 	// msg.print("response") // response
