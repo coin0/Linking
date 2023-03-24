@@ -22,6 +22,7 @@ type argument struct {
 	ServiceIP   *string
 	RelayedIP   *string
 	RelayedInf  *string
+	RestfulIP   *string
 	ServiceIPv6 *string
 	RelayedIPv6 *string
 	RelayedInf6 *string

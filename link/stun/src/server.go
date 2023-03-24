@@ -24,6 +24,7 @@ func init() {
 	conf.Args.ServiceIP = flag.String("sip", "0.0.0.0", "IP address for service")
 	conf.Args.RelayedIP = flag.String("rip", "", "IP address bound for relayed candidates")
 	conf.Args.RelayedInf = flag.String("rif", "", "first ipv4 of specified interface will be used for relay")
+	conf.Args.RestfulIP = flag.String("aip", "127.0.0.1", "IP address for restful service")
 	// IPv6
 	conf.Args.ServiceIPv6 = flag.String("sip6", "::", "IPv6 address for service")
 	conf.Args.RelayedIPv6 = flag.String("rip6", "", "IPv6 address bound for relayed candidates")
@@ -100,7 +101,7 @@ func bindInterfaces() {
 	if len(*conf.Args.ServiceIPv6) > 0 { fmt.Printf("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port) }
 	if len(*conf.Args.RelayedIP) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIP) }
 	if len(*conf.Args.RelayedIPv6) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIPv6) }
-	if len(*conf.Args.Http) > 0 { fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RelayedIP, *conf.Args.Http) }
+	if len(*conf.Args.Http) > 0 { fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http) }
 }
 
 func GetInfFirstIP(inf, relayIP, servIP *string, ipv4 bool) error {
@@ -192,7 +193,7 @@ func startServices() {
 
 	go func () {
 		for {
-			rest.ListenHTTP(*conf.Args.ServiceIP, *conf.Args.Http)
+			rest.ListenHTTP(*conf.Args.RestfulIP, *conf.Args.Http)
 		}
 	}()
 
