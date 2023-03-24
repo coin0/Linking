@@ -87,7 +87,7 @@ func setLog(path string) (err error) {
 	defer logMutex.Unlock()
 
 	var output io.Writer
-	if logFile, err = os.OpenFile(path, os.O_WRONLY | os.O_CREATE | os.O_APPEND, 0600); err != nil {
+	if logFile, err = os.OpenFile(path, os.O_WRONLY | os.O_CREATE | os.O_APPEND, 0644); err != nil {
 		output = logBuffer
 		defer func() {
 			if logFile != nil {
