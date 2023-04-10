@@ -13,6 +13,7 @@ import (
 	. "util/log"
 	"rest"
 	"os/signal"
+	"runtime"
 )
 
 var (
@@ -60,6 +61,9 @@ func main() {
 		}
 	}
 
+	// print system information
+	printSysInfo()
+
 	// register signal handler
 	initSig()
 
@@ -71,6 +75,11 @@ func main() {
 
 	// service begins to listen
 	startServices()
+}
+
+func printSysInfo() {
+
+	Info("system info: pid=%d, cpu_num=%d", os.Getpid(), runtime.NumCPU())
 }
 
 func initSig() {
@@ -89,19 +98,36 @@ func bindInterfaces() {
 	// get interface IP address for relay, this should override -rip and -rip6
 	// IPv4
 	if err := GetInfFirstIP(conf.Args.RelayedInf, conf.Args.RelayedIP, conf.Args.ServiceIP, true); err != nil {
+		Error("get IPv4: %s", err)
 		fmt.Println("Get IPv4:", err)
 		os.Exit(1)
 	}
 	// IPv6
 	if err := GetInfFirstIP(conf.Args.RelayedInf6, conf.Args.RelayedIPv6, conf.Args.ServiceIPv6, false); err != nil {
+		Error("get IPv6: %s", err)
 		fmt.Println("Get IPv6:", err)
 		os.Exit(1)
 	}
-	if len(*conf.Args.ServiceIP) > 0 { fmt.Printf("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port) }
-	if len(*conf.Args.ServiceIPv6) > 0 { fmt.Printf("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port) }
-	if len(*conf.Args.RelayedIP) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIP) }
-	if len(*conf.Args.RelayedIPv6) > 0 { fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIPv6) }
-	if len(*conf.Args.Http) > 0 { fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http) }
+	if len(*conf.Args.ServiceIP) > 0 {
+		Info("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
+		fmt.Printf("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
+	}
+	if len(*conf.Args.ServiceIPv6) > 0 {
+		Info("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port)
+		fmt.Printf("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port)
+	}
+	if len(*conf.Args.RelayedIP) > 0 {
+		Info("relayed IP %s bound\n", *conf.Args.RelayedIP)
+		fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIP)
+	}
+	if len(*conf.Args.RelayedIPv6) > 0 {
+		Info("relayed IP %s bound\n", *conf.Args.RelayedIPv6)
+		fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIPv6)
+	}
+	if len(*conf.Args.Http) > 0 {
+		Info("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
+		fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
+	}
 }
 
 func GetInfFirstIP(inf, relayIP, servIP *string, ipv4 bool) error {
@@ -152,6 +178,7 @@ func loadUsers() {
 		}
 		// the user added by command line will by default have indefinitely expiry
 		conf.Users.ExpiryOff(pair[0])
+		Info("user %s is added", pair[0])
 		fmt.Println("user", pair[0], "added")
 	}
 }
