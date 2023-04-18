@@ -1635,12 +1635,14 @@ func (pool *turnpool) allocPort(addr *address) (int, error) {
 func (pool *turnpool) freePort(addr *address) error {
 
 	// get port manager
-	addr.Port = 0
-	key := keygen(addr)
+	key := keygen(&address{
+		Proto: addr.Proto,
+		IP: addr.IP,
+		Port: 0,
+	})
 	pool.portLck.RLock()
 	mgr, ok := pool.portman[key]
 	pool.portLck.RUnlock()
-
 	if !ok {
 		return fmt.Errorf("relayed address %s not found", addr)
 	}
