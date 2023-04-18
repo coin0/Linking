@@ -116,6 +116,7 @@ func usage() {
 	fmt.Printf("P <ip> <port> <sz> <int> : automation ping test with given sz and int\n")
 	fmt.Printf("Q <ip> <port>            : automation test for pong response\n")
 	fmt.Printf("S <tcp/udp> <sz> <int>   : self ping test with given sz and int\n")
+	fmt.Printf("Z <tcp/udp> <lifetime>   : port allocation stress test\n")
 	fmt.Printf("\n")
 }
 
@@ -386,6 +387,35 @@ func pong2(ip string, port int) error {
 	return nil
 }
 
+func testPort(trans string, life int) error {
+
+	start := time.Now()
+
+	for i := 0;; i++ {
+		cl, err := stun.NewClient(
+			conf.ClientArgs.ServerIP,
+			conf.ClientArgs.ServerPort,
+			conf.ClientArgs.Proto,
+		)
+		if err != nil { return err }
+		cl.Username = *conf.ClientArgs.Username
+		cl.Password = *conf.ClientArgs.Password
+		cl.Lifetime = uint32(life)
+		cl.NoFragment = true
+		cl.EvenPort = true
+		cl.ReservToken = make([]byte, 8)
+		if err := cl.Alloc(trans); err != nil {
+			return fmt.Errorf("%s: %d allocated", err, i)
+		}
+		if i % 100 == 0 {
+			if time.Now().After(start.Add(time.Second * time.Duration(life))) {
+				return fmt.Errorf("lifetime %d sec timedout, %d allocated", life, i)
+			}
+			fmt.Println(i, "ports allocated...")
+		}
+	}
+}
+
 func exec(input string) (err error) {
 
 	defer func() {
@@ -495,6 +525,18 @@ func exec(input string) (err error) {
 		} else {
 			err = ping2(ip, port, sz, dur)
 		}
+	case 'Z':
+		t, _ := strconv.Atoi(get(input, 2))
+		transport := "udp"
+		ipfam := "4"
+		if get(input, 1) == "tcp" || get(input, 1) == "t" {
+			transport = "tcp";
+		} else if get(input, 1) == "tcp6" || get(input, 1) == "t6" {
+			transport = "tcp"; ipfam = "6"
+		} else if get(input, 1) == "udp6" || get(input, 1) == "u6" {
+			transport = "udp"; ipfam = "6"
+		}
+		err = testPort(transport + ipfam, t)
 	default:
 		err = fmt.Errorf("invalid command")
 	}
