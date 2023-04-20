@@ -648,6 +648,7 @@ func (cl *stunclient) bindConn(id uint32) error {
 		if info = cl.dataConnMap.get(id); info == nil {
 			return fmt.Errorf("could not find this connection")
 		}
+		start := time.Now()
 		if err := transmitTCP(info.dataConn, nil, nil, req.buffer()); err != nil {
 			return fmt.Errorf("transmit error: %s", err)
 		}
@@ -665,6 +666,9 @@ func (cl *stunclient) bindConn(id uint32) error {
 				return fmt.Errorf("connection-bind response: %s", err)
 			}
 		}
+		end := time.Now()
+		Info("timeline: connection_bind request %d ms", end.Sub(start).Milliseconds())
+
 		if cl.DebugOn { resp.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
 		Info("server(%s) > client: %s", cl.remote, resp.print4Log())
 		if resp.isErrorResponse() {

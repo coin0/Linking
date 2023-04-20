@@ -1812,7 +1812,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 		case "tcp": err = cl.connectTCP(NET_TCP); return NET_TCP
 		case "udp": err = cl.connectUDP(); return NET_UDP
 		case "tls": err = cl.connectTCP(NET_TLS); return NET_TLS
-		default: err = cl.connectUDP(); return NET_UDP // default type
+		default: return NET_TBD
 		}
 	}(proto)
 
@@ -1841,15 +1841,25 @@ func (cl *stunclient) connectTCP(connType byte) error {
 		}
 		cl.remote.Host = "" // clear host
 	}
+
+	Info("timeline: -> tcp://%s:%d", host, cl.remote.Port)
+
+	start := time.Now()
 	raddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", host, cl.remote.Port))
 	if err != nil {
 		return fmt.Errorf("resolve TCP: %s", err)
 	}
+	end := time.Now()
+	Info("timeline: name resolving %d ms", end.Sub(start).Milliseconds())
 
+	start = time.Now()
 	tcpConn, err := net.DialTCP("tcp", nil, raddr)
 	if err != nil {
 		return fmt.Errorf("dial TCP: %s", err)
 	}
+	end = time.Now()
+	Info("timeline: tcp connection %d ms", end.Sub(start).Milliseconds())
+
 	// set TCP socket options
 	tcpConn.SetNoDelay(true)
 	tcpConn.SetKeepAlive(true)
@@ -1862,9 +1872,12 @@ func (cl *stunclient) connectTCP(connType byte) error {
 			config = &tls.Config{ InsecureSkipVerify: true }
 		}
 		tlsConn := tls.Client(tcpConn, config)
+		start = time.Now()
 		if err := tlsConn.Handshake(); err != nil {
 			return fmt.Errorf("TLS handshake: %s", err)
 		}
+		end = time.Now()
+		Info("timeline: tls handshake %d ms", end.Sub(start).Milliseconds())
 		cl.tcpConn = tlsConn
 	} else {
 		cl.tcpConn = tcpConn
@@ -1894,15 +1907,26 @@ func (cl *stunclient) connectUDP() error {
 		}
 		cl.remote.Host = "" // clear host
 	}
+
+	Info("timeline: -> udp://%s:%d", host, cl.remote.Port)
+
+	start := time.Now()
 	raddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, cl.remote.Port))
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
+	end := time.Now()
+	Info("timeline: name resolving %d ms", end.Sub(start).Milliseconds())
+
 	// save UDP connection
+	start = time.Now()
 	conn, err := net.DialUDP("udp", nil, raddr)
 	if err != nil {
 		return fmt.Errorf("dial UDP: %s", err)
 	}
+	end = time.Now()
+	Info("timeline: dial udp %d ms", end.Sub(start).Milliseconds())
+
 	// set UDP socket options
 	conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
 	conn.SetWriteBuffer(UDP_SO_SNDBUF_SIZE)
@@ -2055,11 +2079,14 @@ func (cl *stunclient) transmitMessage(m *message) (resp []byte, err error) {
 		}()
 
 		// main thread will send data and wait for goroutine to return
+		start := time.Now()
 		e := cl.transmit(m.buffer())
 		if e != nil {
 			ech <- e
 		}
 		wg.Wait()
+		end := time.Now()
+		Info("timeline: %s %d ms", m.methodName + " " + m.encodingName, end.Sub(start).Milliseconds())
 	} else {
 		err = cl.transmit(m.buffer())
 	}
