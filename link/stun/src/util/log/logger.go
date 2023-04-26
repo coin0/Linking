@@ -5,6 +5,8 @@ import (
 	"os"
 	"io"
 	"sync"
+	"fmt"
+	"time"
 )
 
 const (
@@ -73,18 +75,44 @@ func (buf *memBuffer) flush(out io.Writer) (n int, err error) {
 
 func SetLog(path string) {
 
+	// save original log file path
 	logPath = path
-	if err := setLog(path); err != nil {
+
+	// check if target file exists otherwise create a new file
+	fname := ""
+	if curr, err := os.Readlink(path); err != nil {
+		fname = genFilename(path, "log")
+	} else {
+		fname = curr
+	}
+
+	if err := setLog(fname); err != nil {
 		Info("logger: buffer output begins...")
 	} else {
 		Info("logger: file %s begins...", path)
 	}
 }
 
+func genFilename(p, s string) string {
+
+	now := time.Now()
+	return fmt.Sprintf(
+		"%s_%d%02d%02d_%02d%02d%02d.%s",
+		p,
+		now.Year(), now.Month(), now.Day(),
+		now.Hour(), now.Minute(), now.Second(),
+		s,
+	)
+}
+
 func setLog(path string) (err error) {
 
 	logMutex.Lock()
 	defer logMutex.Unlock()
+
+	if logFile != nil {
+		logFile.Close()
+	}
 
 	var output io.Writer
 	if logFile, err = os.OpenFile(path, os.O_WRONLY | os.O_CREATE | os.O_APPEND, 0644); err != nil {
@@ -95,6 +123,11 @@ func setLog(path string) (err error) {
 			}
 		}()
 	} else {
+		// create a symbolic link to current log file
+		os.Remove(logPath)
+		os.Symlink(path, logPath)
+
+		// redirect output to current fd
 		output = logFile
 		defer logBuffer.flush(output)
 	}

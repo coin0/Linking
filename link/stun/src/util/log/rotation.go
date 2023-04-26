@@ -3,7 +3,6 @@ package log
 import (
 	"time"
 	"sync"
-	"sync/atomic"
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
@@ -16,7 +15,6 @@ const (
 )
 
 var (
-	rotateIndex atomic.Uint32
 	rotationLck = &sync.Mutex{}
 )
 
@@ -48,48 +46,26 @@ func SetRotation(maxsize, maxnum int) error {
 			Retain(maxnum)
 
 			// roll an archive and delete original copy
-			now := time.Now()
-			Rotate(logPath + fmt.Sprintf(
-				"_%d%02d%02d_%02d%02d%02d.tar.gz",
-				now.Year(), now.Month(), now.Day(),
-				now.Hour(), now.Minute(), now.Second(),
-			))
+			Rotate()
 		}
 	}()
 
 	return nil
 }
 
-func Rotate(archive string) {
+func Rotate() {
 
 	// switch output to a memory buffer
-	setLog("")
+	prev := ""
+	if logFile != nil {
+		prev = logFile.Name()
+	}
+	setLog(genFilename(logPath, "log"))
 
-	// wait until original log file is renamed
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-
-	go func() {
-
-		i := rotateIndex.Add(1)
-		npath := fmt.Sprintf("%s_%d", logPath, i)
-		func() {
-			defer wg.Done()
-			if err := os.Rename(logPath, npath); err != nil {
-				Error("logger: could not rename %s to %s: %s", logPath, npath, err)
-				return
-			}
-		}()
-
-		if err := compressTarDotGz(npath, archive); err != nil {
-			Error("logger: archive: %s", err)
-		}
-	}()
-
-	// create new log file and switch output back to file
-	wg.Wait()
-	os.Remove(logPath)
-	setLog(logPath)
+	// archive previous log file
+	if err := compressTarDotGz(prev, prev + ".tar.gz"); err != nil {
+		Error("logger: archive: %s", err)
+	}
 }
 
 func compressTarDotGz(path, archive string) error {
