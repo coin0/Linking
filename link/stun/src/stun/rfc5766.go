@@ -372,7 +372,10 @@ func genNonce(length int) string {
 func genFirstNonce(addr *address, length int) string {
 
 	nonce := genNonce(length)
-	allocPool.requests.Store(keygen(addr), &allocreq{ time: time.Now(), nonce: nonce })
+	req, loaded := allocPool.requests.LoadOrStore(keygen(addr), &allocreq{ time: time.Now(), nonce: nonce })
+	if loaded {
+		return req.(*allocreq).nonce
+	}
 
 	return nonce
 }

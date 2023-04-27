@@ -55,7 +55,10 @@ func genNonceWithCookie(length int) string {
 func genFirstNonceWithCookie(addr *address, length int) string {
 
 	nonce := genNonceWithCookie(length)
-	allocPool.requests.Store(keygen(addr), &allocreq{ time: time.Now(), nonce: nonce })
+	req, loaded := allocPool.requests.LoadOrStore(keygen(addr), &allocreq{ time: time.Now(), nonce: nonce })
+	if loaded {
+		return req.(*allocreq).nonce
+	}
 
 	return nonce
 }
