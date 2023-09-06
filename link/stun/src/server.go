@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"os"
-	"net"
+	"util/net"
 	"strconv"
 	. "util/log"
 	"rest"
@@ -97,13 +97,13 @@ func bindInterfaces() {
 
 	// get interface IP address for relay, this should override -rip and -rip6
 	// IPv4
-	if err := GetInfFirstIP(conf.Args.RelayedInf, conf.Args.RelayedIP, conf.Args.ServiceIP, true); err != nil {
+	if err := net.GetInfFirstIP(conf.Args.RelayedInf, conf.Args.RelayedIP, true); err != nil {
 		Error("get IPv4: %s", err)
 		fmt.Println("Get IPv4:", err)
 		os.Exit(1)
 	}
 	// IPv6
-	if err := GetInfFirstIP(conf.Args.RelayedInf6, conf.Args.RelayedIPv6, conf.Args.ServiceIPv6, false); err != nil {
+	if err := net.GetInfFirstIP(conf.Args.RelayedInf6, conf.Args.RelayedIPv6, false); err != nil {
 		Error("get IPv6: %s", err)
 		fmt.Println("Get IPv6:", err)
 		os.Exit(1)
@@ -128,44 +128,6 @@ func bindInterfaces() {
 		Info("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
 		fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
 	}
-}
-
-func GetInfFirstIP(inf, relayIP, servIP *string, ipv4 bool) error {
-
-	// get first valid IPv4 / IPv6 address of specified interface
-	getIP := func(inf string, needIPv4 bool) (addr string, err error) {
-
-		ief, err := net.InterfaceByName(inf)
-		if err != nil {
-			return "", fmt.Errorf("interface %s: %s", inf, err)
-		}
-
-		addrs, err := ief.Addrs()
-		if err != nil {
-			return "", fmt.Errorf("interface %s: %s", inf, err)
-		}
-
-		for _, addr := range addrs {
-			if ip := addr.(*net.IPNet).IP.To4(); ip != nil && needIPv4 {
-				return ip.String(), nil
-			} else if ip == nil && !needIPv4 {
-				return addr.(*net.IPNet).IP.To16().String(), nil
-			}
-		}
-
-		return "", fmt.Errorf("interface %s: no available address", inf)
-	}
-
-	// override relay arguments if interface name is specified
-	if len(*inf) > 0 {
-		var err error
-		*relayIP, err = getIP(*inf, ipv4)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func loadUsers() {
