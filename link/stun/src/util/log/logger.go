@@ -161,6 +161,7 @@ func Fatal(format string, v ...any) {
 	logMutex.RLock()
 	defer logMutex.RUnlock()
 
+	fmt.Printf(format + "\n", v...)
 	fatalL.Fatalf(format, v...)
 }
 

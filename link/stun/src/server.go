@@ -14,6 +14,7 @@ import (
 	"rest"
 	"os/signal"
 	"runtime"
+	"crypto/tls"
 )
 
 var (
@@ -31,8 +32,8 @@ func init() {
 	conf.Args.RelayedIPv6 = flag.String("rip6", "", "IPv6 address bound for relayed candidates")
 	conf.Args.RelayedInf6 = flag.String("rif6", "", "first ipv6 of specified interface used for relay")
 	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
-	conf.Args.Cert = flag.String("cert", "server.crt", "public certificate for sec transport")
-	conf.Args.Key = flag.String("key", "server.key", "private key for sec transport")
+	conf.Args.Cert = flag.String("cert", "", "public certificate for sec transport")
+	conf.Args.Key = flag.String("key", "", "private key for sec transport")
 	conf.Args.Realm = flag.String("realm", "link", "used for long-term cred for TURN")
 	conf.Args.Http = flag.String("http", "8080", "port to receive http api request")
 	conf.Args.Log = flag.String("log", "stun.log", "path for log file")
@@ -41,6 +42,7 @@ func init() {
 	conf.Args.CpuProf = flag.String("cpuprof", "cpu.prof", "write cpu profile to file")
 	conf.Args.MemProf = flag.String("memprof", "mem.prof", "write memory profile to file")
 	flag.Var(&conf.Args.Users, "u", "add one user to TURN server")
+	flag.Var(&conf.Args.CertKeys, "c", "add a new cert-key pair")
 
 	flag.Parse()
 }
@@ -72,6 +74,9 @@ func main() {
 
 	// handle user account
 	loadUsers()
+
+	// add certificate pairs to list
+	loadCerts()
 
 	// service begins to listen
 	startServices()
@@ -142,6 +147,29 @@ func loadUsers() {
 		conf.Users.ExpiryOff(pair[0])
 		Info("user %s is added", pair[0])
 		fmt.Println("user", pair[0], "added")
+	}
+}
+
+func loadCerts() {
+
+	if len(*conf.Args.Cert) == 0 && len(*conf.Args.Key) == 0 && len(conf.Args.CertKeys) == 0 { return }
+
+	// append certificate pair to list
+	conf.Args.CertKeys = append(conf.Args.CertKeys, *conf.Args.Cert + ":" + *conf.Args.Key)
+
+	for _, one := range conf.Args.CertKeys {
+		pair := strings.Split(one, ":")
+		if len(pair) != 2 {
+			Fatal("invalid cert key format: %s", one)
+		}
+		// load cert and key files from filesystem
+		cert, err := tls.LoadX509KeyPair(pair[0], pair[1])
+		if err != nil {
+			Fatal("could not load cert: cert=%s, key=%s: %s", pair[0], pair[1], err)
+		}
+		conf.Args.Certs = append(conf.Args.Certs, cert)
+		Info("cert %s is added", pair[0])
+		fmt.Println("cert", pair[0], "added")
 	}
 }
 

@@ -1,5 +1,9 @@
 package conf
 
+import (
+	"crypto/tls"
+)
+
 // -------------------------------------------------------------------------------------------------
 
 type arrayflags []string
@@ -19,6 +23,7 @@ func (this *arrayflags) Set(value string) error {
 // -------------------------------------------------------------------------------------------------
 
 type argument struct {
+
 	ServiceIP   *string
 	RelayedIP   *string
 	RelayedInf  *string
@@ -29,6 +34,8 @@ type argument struct {
 	Port     *string
 	Cert     *string
 	Key      *string
+	CertKeys arrayflags
+	Certs    []tls.Certificate
 	Realm    *string
 	Users    arrayflags
 	Http     *string
