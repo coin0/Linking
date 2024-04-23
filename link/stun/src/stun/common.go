@@ -11,6 +11,7 @@ import (
 	"context"
 	"util/reuse"
 	"runtime"
+	"strconv"
 )
 
 const (
@@ -656,7 +657,13 @@ func parseAttributeType(db uint16) string {
 	case STUN_ATTR_PASSWORD_ALGORITHMS: return "PASSWORD-ALGORITHMS"
 	case STUN_ATTR_ALTERNATE_DOMAIN: return "ALTERNATE-DOMAIN"
 	case STUN_ATTR_CONNECTION_ID: return "CONNECTION-ID"
-	case STUN_ATTR_REQUESTED_ADDRESS_FAMILY: return "REQUESTED_ADDRESS_FAMILY"
+	case STUN_ATTR_REQUESTED_ADDRESS_FAMILY: return "REQUESTED-ADDRESS-FAMILY"
+	case STUN_ATTR_CHANGE_REQUEST: return "CHANGE-REQUEST"
+	case STUN_ATTR_RESPONSE_PORT: return "RESPONSE-PORT"
+	case STUN_ATTR_PADDING: return "PADDING"
+	case STUN_ATTR_CACHE_TIMEOUT: return "CACHE-TIMEOUT"
+	case STUN_ATTR_RESPONSE_ORIGIN: return "RESPONSE-ORIGIN"
+	case STUN_ATTR_OTHER_ADDRESS: return "OTHER-ADDRESS"
 	}
 	return "RESERVED"
 }
@@ -733,6 +740,23 @@ func (addr *address) Equal(other *address) bool {
 	return (addr.IP.Equal(other.IP) &&
 		addr.Port == other.Port &&
 		addr.Proto == other.Proto)
+}
+
+func (addr *address) Parse(a net.Addr) error {
+
+	host, port, err := net.SplitHostPort(a.String())
+	if err != nil {
+		return fmt.Errorf("address: %s", err)
+	}
+
+	addr.Host = host
+	addr.IP = net.ParseIP(host)
+	addr.Port, err = strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("port: %s", err)
+	}
+
+	return nil
 }
 
 // -------------------------------------------------------------------------------------------------

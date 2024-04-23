@@ -113,6 +113,7 @@ func usage() {
 	fmt.Printf("d                        : disconnect from the server\n")
 	fmt.Printf("q                        : quit this client\n")
 	fmt.Printf("---------------------------------------------------------------------\n")
+	fmt.Printf("T                        : probe NAT behavior (rfc5780)\n")
 	fmt.Printf("P <ip> <port> <sz> <int> : automation ping test with given sz and int\n")
 	fmt.Printf("Q <ip> <port>            : automation test for pong response\n")
 	fmt.Printf("S <tcp/udp> <sz> <int>   : self ping test with given sz and int\n")
@@ -489,6 +490,8 @@ func exec(input string) (err error) {
 	case 'q':
 		fmt.Println("Bye!\n")
 		os.Exit(0)
+	case 'T':
+		err = client.Probe()
 	case 'P':
 		if len(strings.Split(input, " ")) != 5 { return fmt.Errorf("arguments mismatch") }
 		p, _ := strconv.Atoi(get(input, 2))

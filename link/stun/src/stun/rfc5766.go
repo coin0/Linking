@@ -229,6 +229,9 @@ type stunclient struct {
 	// server address
 	remote      *address
 
+	// client local address
+	local       *address
+
 	// reflexive address
 	srflx       *address
 
@@ -1787,6 +1790,7 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 			IP: net.ParseIP(ip),
 			Port: port,
 		},
+		local: &address{},
 		channels: map[allockey]uint16{},
 		tcpBuffer: []byte{},
 		dataConns: &tcpPool{
@@ -1856,12 +1860,13 @@ func (cl *stunclient) connectTCP(connType byte) error {
 	Info("timeline: name resolving %d ms", end.Sub(start).Milliseconds())
 
 	start = time.Now()
-	tcpConn, err := net.DialTCP("tcp", nil, raddr)
+	tcpConn, err := net.DialTCP("tcp", cl.pickTCPAddress(), raddr)
 	if err != nil {
 		return fmt.Errorf("dial TCP: %s", err)
 	}
 	end = time.Now()
 	Info("timeline: tcp connection %d ms", end.Sub(start).Milliseconds())
+	cl.local.Parse(tcpConn.LocalAddr())
 
 	// set TCP socket options
 	tcpConn.SetNoDelay(true)
@@ -1923,12 +1928,13 @@ func (cl *stunclient) connectUDP() error {
 
 	// save UDP connection
 	start = time.Now()
-	conn, err := net.DialUDP("udp", nil, raddr)
+	conn, err := net.DialUDP("udp", cl.pickUDPAddress(), raddr)
 	if err != nil {
 		return fmt.Errorf("dial UDP: %s", err)
 	}
 	end = time.Now()
 	Info("timeline: dial udp %d ms", end.Sub(start).Milliseconds())
+	cl.local.Parse(conn.LocalAddr())
 
 	// set UDP socket options
 	conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)

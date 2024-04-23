@@ -89,6 +89,39 @@ func genTransactionID() []byte {
 	return id
 }
 
+func decodeAddr(attr *attribute) (*address, error) {
+
+	fm := attr.value[1]
+	port := binary.BigEndian.Uint16(attr.value[2:])
+	if fm == ADDR_FAMILY_IPV4 {
+		if len(attr.value[4:]) < 4 {
+			return nil, fmt.Errorf("invalid Ipv4")
+		}
+		ip4 := net.IPv4(attr.value[4], attr.value[5], attr.value[6], attr.value[7]).To4()
+		if ip4 == nil {
+			return nil, fmt.Errorf("invalid IPv4")
+		}
+		return &address{
+			IP: ip4,
+			Port: int(port),
+		}, nil
+	} else if fm == ADDR_FAMILY_IPV6 {
+		if len(attr.value[4:]) < 16 {
+			return nil, fmt.Errorf("invalid Ipv6")
+		}
+		var ip6 net.IP
+		if ip6 = attr.value[4:]; ip6.To16() == nil {
+			return nil, fmt.Errorf("invalid Ipv6")
+		}
+		return &address{
+			IP:   ip6,
+			Port: int(port),
+		}, nil
+	} else {
+		return nil, fmt.Errorf("invalid address")
+	}
+}
+
 func decodeXorAddr(attr *attribute, transactionID []byte) (*address, error) {
 
 	fm := attr.value[1]
@@ -359,6 +392,15 @@ func newBindingRequest() (*message, error) {
 	return msg, nil
 }
 
+func (this *message) getAttrMappedAddr() (addr *address, err error) {
+
+	attr := this.findAttr(STUN_ATTR_MAPPED_ADDR)
+	if attr == nil {
+		return nil, fmt.Errorf("mapped address not found")
+	}
+	return decodeAddr(attr)
+}
+
 func (this *message) getAttrXorMappedAddr() (addr *address, err error) {
 
 	attr := this.findAttr(STUN_ATTR_XOR_MAPPED_ADDR)
@@ -427,6 +469,40 @@ func (this *message) getAttrStringValue(typevalue uint16, typename string) (stri
 	return decodeStringValue(attr), nil
 }
 
+func (this *message) addAttrAddr(r *address, typeval uint16) int {
+
+	attr := &attribute{}
+	attr.typevalue = typeval
+	attr.typename = parseAttributeType(attr.typevalue)
+
+	if r.IP.To4() == nil {
+		attr.value = make([]byte, 20)
+	} else {
+		r.IP = r.IP.To4() // force ipv4 format
+		attr.value = make([]byte, 8)
+	}
+	attr.length = len(attr.value)
+
+	// zero first byte
+	attr.value[0] = 0x00
+
+	// family
+	if r.IP.To4() != nil {
+		attr.value[1] = ADDR_FAMILY_IPV4
+	} else {
+		attr.value[1] = ADDR_FAMILY_IPV6
+	}
+
+	// port number
+	binary.BigEndian.PutUint16(attr.value[2:], uint16(r.Port))
+
+	// IP address
+	copy(attr.value[4:], r.IP)
+
+	this.attributes = append(this.attributes, attr)
+	return 4 + len(attr.value)
+}
+
 func (this *message) addAttrXorAddr(r *address, typeval uint16) int {
 
 	attr := &attribute{}
@@ -469,6 +545,23 @@ func (this *message) addAttrXorAddr(r *address, typeval uint16) int {
 
 	this.attributes = append(this.attributes, attr)
 	return 4 + len(attr.value)
+}
+
+func (this *message) addAttrMappedAddr(r *address) int {
+
+/*
+       0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |0 0 0 0 0 0 0 0|    Family     |           Port                |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                                                               |
+      |                 Address (32 bits or 128 bits)                 |
+      |                                                               |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+*/
+
+	return this.addAttrAddr(r, STUN_ATTR_MAPPED_ADDR)
 }
 
 func (this *message) addAttrXorMappedAddr(r *address) int {
