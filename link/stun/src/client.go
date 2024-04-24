@@ -23,6 +23,9 @@ var (
 	srflxProto   = ""
 	srflxIP      = ""
 	srflxPort    = 0
+	localProto   = ""
+	localIP      = ""
+	localPort    = 0
 	client, _    = stun.NewClient("", 0, "")
 )
 
@@ -95,6 +98,7 @@ func usage() {
 	fmt.Println("******************************************")
 	fmt.Println("Simple STUN client")
 	fmt.Printf("  Ready to connect to server address %s\n", serverAddr)
+	if localIP != ""   { fmt.Printf("  Local address %s://%s:%d\n", localProto, verboseIP(localIP), localPort) }
 	if relayedIP != "" { fmt.Printf("  Relayed address %s://%s:%d\n", relayedProto, verboseIP(relayedIP), relayedPort) }
 	if srflxIP != ""   { fmt.Printf("  Reflexive address %s://%s:%d\n", srflxProto, verboseIP(srflxIP), srflxPort) }
 	fmt. Printf("  Debug mode: %s\n\n", func() string {
@@ -592,9 +596,11 @@ func main() {
 	for {
 		// wait for user input
 		if client != nil {
+			localProto, localIP, localPort, _ = client.LocalAddr()
 			relayedProto, relayedIP, relayedPort, _ = client.RelayedAddr()
 			srflxProto, srflxIP, srflxPort, _ = client.SrflxAddr()
 		} else {
+			localIP, localPort = "", 0
 			relayedIP, relayedPort = "", 0
 			srflxProto, srflxIP, srflxPort = "", "", 0
 		}

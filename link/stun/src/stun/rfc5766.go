@@ -1866,7 +1866,7 @@ func (cl *stunclient) connectTCP(connType byte) error {
 	}
 	end = time.Now()
 	Info("timeline: tcp connection %d ms", end.Sub(start).Milliseconds())
-	cl.local.Parse(tcpConn.LocalAddr())
+	cl.local.ParseNetAddr(tcpConn.LocalAddr())
 
 	// set TCP socket options
 	tcpConn.SetNoDelay(true)
@@ -1934,7 +1934,7 @@ func (cl *stunclient) connectUDP() error {
 	}
 	end = time.Now()
 	Info("timeline: dial udp %d ms", end.Sub(start).Milliseconds())
-	cl.local.Parse(conn.LocalAddr())
+	cl.local.ParseNetAddr(conn.LocalAddr())
 
 	// set UDP socket options
 	conn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)

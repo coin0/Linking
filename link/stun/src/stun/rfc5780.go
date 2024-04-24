@@ -26,18 +26,14 @@ const (
 	STUN_ATTR_OTHER_ADDRESS    = 0x802c
 )
 
-var (
-	sourcePort = 0
-)
-
 // -------------------------------------------------------------------------------------------------
 
-func init() {
+func selectPort() int {
 
 	// https://datatracker.ietf.org/doc/html/rfc5780#section-4.1
 	total := STUN_NAT_PROBE_MAX_PORT - STUN_NAT_PROBE_MIN_PORT + 1
 	r := rand.New(rand.NewSource(time.Now().Unix()))
-	sourcePort = STUN_NAT_PROBE_MIN_PORT + int(r.Uint32()) % total
+	return STUN_NAT_PROBE_MIN_PORT + int(r.Uint32()) % total
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -182,7 +178,7 @@ func (cl *stunclient) pickUDPAddress() *net.UDPAddr {
 
 	return &net.UDPAddr{
 		IP: nil,
-		Port: sourcePort,
+		Port: selectPort(),
 	}
 }
 
@@ -190,7 +186,7 @@ func (cl *stunclient) pickTCPAddress() *net.TCPAddr {
 
 	return &net.TCPAddr{
 		IP: nil,
-		Port: sourcePort,
+		Port: selectPort(),
 	}
 }
 
@@ -227,11 +223,20 @@ func (cl *stunclient) Probe() (err error) {
 	// end of copy
 
 	fmt.Println(cl.local)
-	
+
 
 	// get the alternate server address
 	//otherServer, err := msg.getAttrOtherAddress()
 	
 
 	return nil
+}
+
+func (cl *stunclient) LocalAddr() (string, string, int, error) {
+
+	if cl.local != nil {
+		return parseNetType(cl.local.Proto), cl.local.IP.String(), cl.local.Port, nil
+	}
+
+	return "", "", 0, fmt.Errorf("local address unknown")
 }

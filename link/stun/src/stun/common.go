@@ -742,7 +742,7 @@ func (addr *address) Equal(other *address) bool {
 		addr.Proto == other.Proto)
 }
 
-func (addr *address) Parse(a net.Addr) error {
+func (addr *address) ParseNetAddr(a net.Addr) error {
 
 	host, port, err := net.SplitHostPort(a.String())
 	if err != nil {
@@ -754,6 +754,12 @@ func (addr *address) Parse(a net.Addr) error {
 	addr.Port, err = strconv.Atoi(port)
 	if err != nil {
 		return fmt.Errorf("port: %s", err)
+	}
+
+	switch a.Network() {
+		case "tcp": addr.Proto = NET_TCP
+		case "udp": addr.Proto = NET_UDP
+		default: addr.Proto = NET_TBD
 	}
 
 	return nil
