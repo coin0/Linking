@@ -232,6 +232,9 @@ type stunclient struct {
 	// client local address
 	local       *address
 
+	// NAT behavior discovery type
+	natType     byte
+
 	// reflexive address
 	srflx       *address
 
@@ -1875,6 +1878,8 @@ func (cl *stunclient) connectTCP(connType byte) error {
 	tcpConn.SetWriteBuffer(TCP_SO_SNDBUF_SIZE)
 
 	if connType == NET_TLS {
+		// change to TLS over TCP
+		cl.local.Proto = NET_TLS
 		config := &tls.Config{ InsecureSkipVerify: false, ServerName: host }
 		if !*conf.ClientArgs.VerifyCert {
 			config = &tls.Config{ InsecureSkipVerify: true }

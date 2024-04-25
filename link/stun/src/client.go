@@ -97,6 +97,7 @@ func usage() {
 
 	fmt.Println("******************************************")
 	fmt.Println("Simple STUN client")
+	fmt.Printf("  NAT type: %s\n", client.NATTypeString())
 	fmt.Printf("  Ready to connect to server address %s\n", serverAddr)
 	if localIP != ""   { fmt.Printf("  Local address %s://%s:%d\n", localProto, verboseIP(localIP), localPort) }
 	if relayedIP != "" { fmt.Printf("  Relayed address %s://%s:%d\n", relayedProto, verboseIP(relayedIP), relayedPort) }

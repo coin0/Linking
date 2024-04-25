@@ -31,6 +31,18 @@ const (
 	ADDR_FAMILY_IPV6 = 0x2
 )
 
+// see definition https://www.ietf.org/rfc/rfc5128.txt
+const (
+	NAT_TYPE_UNKNOWN                = 0x00
+	NAT_TYPE_ENDPOINT_INDEP_MAP     = 0x01
+	NAT_TYPE_ADDR_DEP_MAP           = 0x02
+	NAT_TYPE_ADDR_AND_PORT_DEP_MAP  = 0x03
+	NAT_TYPE_ENDPOINT_INDEP_FILT    = 0x10
+	NAT_TYPE_ADDR_DEP_FILT          = 0x20
+	NAT_TYPE_ADDR_AND_PORT_DEP_FILT = 0x30
+	NAT_TYPE_NOT_NATED              = 0xff
+)
+
 const (
 	TCP_MAX_TIMEOUT    = 300
 	// tcp buffer size in user space
@@ -703,6 +715,21 @@ func parseTransportNetType(b byte) byte {
 	case PROTO_NUM_UDP: return NET_UDP
 	}
 	return NET_TBD
+}
+
+func parseNATType(b byte) string {
+
+	switch b {
+	case NAT_TYPE_UNKNOWN: return "UNKNOWN"
+	case NAT_TYPE_ENDPOINT_INDEP_MAP: return "Endpoint-Independent Mapping"
+	case NAT_TYPE_ADDR_DEP_MAP: return "Address-Dependent Mapping"
+	case NAT_TYPE_ADDR_AND_PORT_DEP_MAP: return "Address and Port-Dependent Mapping"
+	case NAT_TYPE_ENDPOINT_INDEP_FILT: return "Endpoint-Independent Filtering"
+	case NAT_TYPE_ADDR_DEP_FILT: return "Address-Dependent Filtering"
+	case NAT_TYPE_ADDR_AND_PORT_DEP_FILT: return "Address and Port-Dependent Filtering"
+	case NAT_TYPE_NOT_NATED: return "Not NATed"
+	}
+	return "UNKNOWN"
 }
 
 // -------------------------------------------------------------------------------------------------

@@ -222,12 +222,18 @@ func (cl *stunclient) Probe() (err error) {
 	cl.srflx.Proto = cl.remote.Proto
 	// end of copy
 
-	fmt.Println(cl.local)
+	// examine reflexive address
+	if cl.local.Equal(cl.srflx) {
+		cl.natType = NAT_TYPE_NOT_NATED
+		return nil
+	}
 
-
-	// get the alternate server address
-	//otherServer, err := msg.getAttrOtherAddress()
-	
+	// get the other server address
+	otherServer, err := msg.getAttrOtherAddress()
+	if err != nil {
+		return fmt.Errorf("get other address: %s", err)
+	}
+	fmt.Println(otherServer)
 
 	return nil
 }
@@ -239,4 +245,9 @@ func (cl *stunclient) LocalAddr() (string, string, int, error) {
 	}
 
 	return "", "", 0, fmt.Errorf("local address unknown")
+}
+
+func (cl *stunclient) NATTypeString() string {
+
+	return parseNATType(cl.natType)
 }
