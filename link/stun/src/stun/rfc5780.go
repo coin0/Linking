@@ -192,9 +192,17 @@ func (cl *stunclient) pickTCPAddress() *net.TCPAddr {
 
 // this interface mostly follows the flow defined in the standard document
 // https://datatracker.ietf.org/doc/html/rfc5780#section-4.3
-func (cl *stunclient) Probe() (err error) {
+func (cl *stunclient) Probe() error {
 
-	// * determining NAT Mapping Behavior *
+	// determining NAT Mapping Behavior
+	if err := cl.probeMapping(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cl *stunclient) probeMapping() (err error) {
 
 	// test I: UDP connectivity test
 

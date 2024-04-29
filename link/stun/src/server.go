@@ -27,11 +27,16 @@ func init() {
 	conf.Args.RelayedIP = flag.String("rip", "", "IP address bound for relayed candidates")
 	conf.Args.RelayedInf = flag.String("rif", "", "first ipv4 of specified interface will be used for relay")
 	conf.Args.RestfulIP = flag.String("aip", "127.0.0.1", "IP address for restful service")
+	conf.Args.OtherIP = flag.String("osip", "", "IP address of other server (used by RFC5780)")
+	conf.Args.OtherPort = flag.Int("oport", 0, "STUN service port number of the other server")
+	conf.Args.OtherPort2 = flag.Int("oport2", 0, "alternate STUN service port number of the other server")
+	conf.Args.OtherHttp = flag.Int("ohttp", 8080, "restful API service port number of the other server")
 	// IPv6
 	conf.Args.ServiceIPv6 = flag.String("sip6", "::", "IPv6 address for service")
 	conf.Args.RelayedIPv6 = flag.String("rip6", "", "IPv6 address bound for relayed candidates")
 	conf.Args.RelayedInf6 = flag.String("rif6", "", "first ipv6 of specified interface used for relay")
 	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
+	conf.Args.Port2 = flag.String("port2", "", "alternate service port")
 	conf.Args.Cert = flag.String("cert", "", "public certificate for sec transport")
 	conf.Args.Key = flag.String("key", "", "private key for sec transport")
 	conf.Args.Realm = flag.String("realm", "link", "used for long-term cred for TURN")
@@ -116,6 +121,10 @@ func bindInterfaces() {
 	if len(*conf.Args.ServiceIP) > 0 {
 		Info("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
 		fmt.Printf("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
+		if *conf.Args.Port2 != "" {
+			Info("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port2)
+			fmt.Printf("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port2)
+		}
 	}
 	if len(*conf.Args.ServiceIPv6) > 0 {
 		Info("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port)
@@ -187,6 +196,15 @@ func startServices() {
 			stun.ListenUDP("udp4", *conf.Args.ServiceIP, *conf.Args.Port)
 		}
 	}(wg)
+	if *conf.Args.Port2 != "" {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+			for {
+				stun.ListenUDP("udp4", *conf.Args.ServiceIP, *conf.Args.Port2)
+			}
+		}(wg)
+	}
 	go func(wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {
@@ -201,6 +219,15 @@ func startServices() {
 			stun.ListenTCP("tcp4", *conf.Args.ServiceIP, *conf.Args.Port)
 		}
 	}(wg)
+	if *conf.Args.Port2 != "" {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+			for {
+				stun.ListenTCP("tcp4", *conf.Args.ServiceIP, *conf.Args.Port2)
+			}
+		}(wg)
+	}
 	go func (wg *sync.WaitGroup) {
 		defer wg.Done()
 		for {

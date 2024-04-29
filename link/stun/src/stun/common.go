@@ -582,7 +582,7 @@ func (this *message) process(r *address, conn net.Conn) (*message, error) {
 	// special handlers
 	switch this.method | this.encoding {
 	case STUN_MSG_METHOD_ALLOCATE | STUN_MSG_REQUEST: return this.doAllocationRequest(r, conn)
-	case STUN_MSG_METHOD_BINDING | STUN_MSG_REQUEST:  return this.doBindingRequest(r)
+	case STUN_MSG_METHOD_BINDING | STUN_MSG_REQUEST:  return this.doBindingRequest(r, conn)
 	case STUN_MSG_METHOD_CONN_BIND | STUN_MSG_REQUEST: return this.doConnBindRequest(r)
 	}
 

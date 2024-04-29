@@ -28,10 +28,15 @@ type argument struct {
 	RelayedIP   *string
 	RelayedInf  *string
 	RestfulIP   *string
+	OtherIP     *string
+	OtherPort   *int
+	OtherPort2  *int
+	OtherHttp   *int
 	ServiceIPv6 *string
 	RelayedIPv6 *string
 	RelayedInf6 *string
 	Port     *string
+	Port2    *string
 	Cert     *string
 	Key      *string
 	CertKeys arrayflags

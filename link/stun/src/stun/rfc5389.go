@@ -366,7 +366,7 @@ func (this *message) isBindingRequest() bool {
 	return (this.method | this.encoding) == (STUN_MSG_METHOD_BINDING | STUN_MSG_REQUEST)
 }
 
-func (this *message) doBindingRequest(r *address) (*message, error) {
+func (this *message) doBindingRequest(r *address, conn net.Conn) (*message, error) {
 
 	msg := &message{}
 	msg.method = STUN_MSG_METHOD_BINDING
@@ -374,6 +374,49 @@ func (this *message) doBindingRequest(r *address) (*message, error) {
 
 	// add xor port and address
 	len := msg.addAttrXorMappedAddr(r)
+
+	// rfc5780: handle NAT discovery behavior
+	//          in this implementation a second IP is not mandatory when change-request is received
+	//          current server sends restful API to the other server responding with required response
+	//          port, therefore other-ip other-port other-alt-port and other-restful-port MUST be provided.
+	if *conf.Args.OtherIP != "" && *conf.Args.OtherPort != 0 &&
+		*conf.Args.OtherPort2 != 0 && *conf.Args.OtherHttp != 0 {
+
+		// insert RESPONSE-ORIGIN attribute
+		local := &address{}
+		local.ParseNetAddr(conn.LocalAddr())
+		len += msg.addAttrResponseOrigin(local)
+
+		// insert OTHER-ADDRESS attribute
+		if otherIP := net.ParseIP(*conf.Args.OtherIP); otherIP != nil {
+			// https://datatracker.ietf.org/doc/html/rfc5780#section-6.1 table-1
+			// always respond changeIP and changePort in other address attribute
+			var port int
+			// always reply with changed port
+			if local.Port == *conf.Args.OtherPort {
+				port = int(*conf.Args.OtherPort2)
+			} else {
+				port = int(*conf.Args.OtherPort)
+			}
+			len += msg.addAttrOtherAddress(&address{ IP: otherIP, Port: port })
+		}
+
+		// handle CHANGE-REQUEST
+		if changePort, changeIP, err := this.getAttrChangeRequest(); err == nil  {
+			if changePort {
+				// TODO
+			}
+			if changeIP {
+				// TODO
+			}
+
+			// silently drop this message
+			return nil, nil
+		}
+	} else if _, _, err := this.getAttrChangeRequest(); err == nil {
+		// respond error if no support for other server address
+		return this.newErrorMessage(STUN_ERR_UNKNOWN_ATTRIBUTE, "CHANGE-REQUEST is not supported"), nil
+	}
 
 	msg.length = len
 	msg.encoding = STUN_MSG_SUCCESS
@@ -819,6 +862,12 @@ func (this *message) print(title string) {
 	// show extra info like decoded xor addresses
 	showExtra := func(attr *attribute) string {
 		switch attr.typevalue {
+		case STUN_ATTR_MAPPED_ADDR, STUN_ATTR_OTHER_ADDRESS, STUN_ATTR_RESPONSE_ORIGIN:
+			addr, err := decodeAddr(attr)
+			if err != nil {
+				return fmt.Sprintf("(%v)", err)
+			}
+			return fmt.Sprintf("(%s)", addr)
 		case STUN_ATTR_XOR_MAPPED_ADDR,STUN_ATTR_XOR_RELAYED_ADDR, STUN_ATTR_XOR_PEER_ADDR:
 			addr, err := decodeXorAddr(attr, this.transactionID)
 			if err != nil {
@@ -839,10 +888,13 @@ func (this *message) print(title string) {
 			return fmt.Sprintf("(%d)", binary.BigEndian.Uint32(attr.value))
 		case STUN_ATTR_REQUESTED_TRAN:
 			return fmt.Sprintf("(%s)", parseTransportType(attr.value[0]))
-		case STUN_ATTR_CHANNEL_NUMBER:
+		case STUN_ATTR_CHANNEL_NUMBER, STUN_ATTR_RESPONSE_PORT:
 			return fmt.Sprintf("(%d)", binary.BigEndian.Uint16(attr.value))
 		case STUN_ATTR_REQUESTED_ADDRESS_FAMILY:
 			return fmt.Sprintf("(%s)", parseAddrFamilyType(attr.value[0]))
+		case STUN_ATTR_CHANGE_REQUEST:
+			return fmt.Sprintf("ip=%d, port=%d",
+				uint8(attr.value[3]) & 0x2 > 0, uint8(attr.value[3]) & 0x4 > 0)
 		default:
 			return ""
 		}
@@ -866,6 +918,12 @@ func (this *message) print4Log() string {
 		str += fmt.Sprintf("%s(%dB %s) ", v.typename, v.length, func(attr *attribute) string {
 
 			switch attr.typevalue {
+			case STUN_ATTR_MAPPED_ADDR, STUN_ATTR_OTHER_ADDRESS, STUN_ATTR_RESPONSE_ORIGIN:
+				addr, err := decodeAddr(attr)
+				if err != nil {
+					return fmt.Sprintf("err=%s", err)
+				}
+				return fmt.Sprintf("addr=%s", addr)
 			case STUN_ATTR_XOR_MAPPED_ADDR, STUN_ATTR_XOR_RELAYED_ADDR, STUN_ATTR_XOR_PEER_ADDR:
 				addr, err := decodeXorAddr(attr, this.transactionID)
 				if err != nil {
@@ -892,10 +950,13 @@ func (this *message) print4Log() string {
 				return fmt.Sprintf("id=%d", binary.BigEndian.Uint32(attr.value))
 			case STUN_ATTR_REQUESTED_TRAN:
 				return fmt.Sprintf("trans=%s", parseTransportType(attr.value[0]))
-			case STUN_ATTR_CHANNEL_NUMBER:
+			case STUN_ATTR_CHANNEL_NUMBER, STUN_ATTR_RESPONSE_PORT:
 				return fmt.Sprintf("no=%d", binary.BigEndian.Uint16(attr.value))
 			case STUN_ATTR_REQUESTED_ADDRESS_FAMILY:
 				return fmt.Sprintf("fm=%s", parseAddrFamilyType(attr.value[0]))
+			case STUN_ATTR_CHANGE_REQUEST:
+				return fmt.Sprintf("ip=%d, port=%d",
+					uint8(attr.value[3]) & 0x2 > 0, uint8(attr.value[3]) & 0x4 > 0)
 			default:
 				return "-"
 			}
