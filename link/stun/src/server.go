@@ -9,7 +9,6 @@ import (
 	"strings"
 	"os"
 	"util/net"
-	"strconv"
 	. "util/log"
 	"rest"
 	"os/signal"
@@ -35,15 +34,15 @@ func init() {
 	conf.Args.ServiceIPv6 = flag.String("sip6", "::", "IPv6 address for service")
 	conf.Args.RelayedIPv6 = flag.String("rip6", "", "IPv6 address bound for relayed candidates")
 	conf.Args.RelayedInf6 = flag.String("rif6", "", "first ipv6 of specified interface used for relay")
-	conf.Args.Port = flag.String("port", "3478", "specific port to bind")
-	conf.Args.Port2 = flag.String("port2", "", "alternate service port")
+	conf.Args.Port = flag.Int("port", 3478, "specific port to bind")
+	conf.Args.Port2 = flag.Int("port2", 0, "alternate service port")
 	conf.Args.Cert = flag.String("cert", "", "public certificate for sec transport")
 	conf.Args.Key = flag.String("key", "", "private key for sec transport")
 	conf.Args.Realm = flag.String("realm", "link", "used for long-term cred for TURN")
-	conf.Args.Http = flag.String("http", "8080", "port to receive http api request")
+	conf.Args.Http = flag.Int("http", 8080, "port to receive http api request")
 	conf.Args.Log = flag.String("log", "stun.log", "path for log file")
-	conf.Args.LogSize = flag.String("logsize", "100", "maximum log size (MB)")
-	conf.Args.LogNum = flag.String("lognum", "6", "maximum log file number")
+	conf.Args.LogSize = flag.Int("logsize", 100, "maximum log size (MB)")
+	conf.Args.LogNum = flag.Int("lognum", 6, "maximum log file number")
 	conf.Args.CpuProf = flag.String("cpuprof", "cpu.prof", "write cpu profile to file")
 	conf.Args.MemProf = flag.String("memprof", "mem.prof", "write memory profile to file")
 	flag.Var(&conf.Args.Users, "u", "add one user to TURN server")
@@ -62,11 +61,7 @@ func main() {
 
 	// open log file
 	SetLog(*conf.Args.Log)
-	if logsize, err := strconv.Atoi(*conf.Args.LogSize); err == nil {
-		if lognum, err := strconv.Atoi(*conf.Args.LogNum); err == nil {
-			SetRotation(logsize * 1024 * 1024, lognum)
-		}
-	}
+	SetRotation(*conf.Args.LogSize * 1024 * 1024, *conf.Args.LogNum)
 
 	// print system information
 	printSysInfo()
@@ -119,16 +114,16 @@ func bindInterfaces() {
 		os.Exit(1)
 	}
 	if len(*conf.Args.ServiceIP) > 0 {
-		Info("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
-		fmt.Printf("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
-		if *conf.Args.Port2 != "" {
-			Info("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port2)
-			fmt.Printf("service addr %s:%s bound\n", *conf.Args.ServiceIP, *conf.Args.Port2)
+		Info("service addr %s:%d bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
+		fmt.Printf("service addr %s:%d bound\n", *conf.Args.ServiceIP, *conf.Args.Port)
+		if *conf.Args.Port2 != 0 {
+			Info("service addr %s:%d bound\n", *conf.Args.ServiceIP, *conf.Args.Port2)
+			fmt.Printf("service addr %s:%d bound\n", *conf.Args.ServiceIP, *conf.Args.Port2)
 		}
 	}
 	if len(*conf.Args.ServiceIPv6) > 0 {
-		Info("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port)
-		fmt.Printf("service addr [%s]:%s bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port)
+		Info("service addr [%s]:%d bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port)
+		fmt.Printf("service addr [%s]:%d bound\n", *conf.Args.ServiceIPv6, *conf.Args.Port)
 	}
 	if len(*conf.Args.RelayedIP) > 0 {
 		Info("relayed IP %s bound\n", *conf.Args.RelayedIP)
@@ -138,20 +133,18 @@ func bindInterfaces() {
 		Info("relayed IP %s bound\n", *conf.Args.RelayedIPv6)
 		fmt.Printf("relayed IP %s bound\n", *conf.Args.RelayedIPv6)
 	}
-	if len(*conf.Args.Http) > 0 {
-		Info("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
-		fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
-	}
+	Info("restful addr %s:%d bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
+	fmt.Printf("restful addr %s:%d bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
 	if len(*conf.Args.OtherIP) > 0 {
-		if len(*conf.Args.Port2) == 0 {
+		if *conf.Args.Port2 == 0 {
 			Error("alternate port is needed along with other address")
 			fmt.Println("alternate port is needed along with other address")
 			os.Exit(1)
 		}
 		// set default port number pair of other address
 		if *conf.Args.OtherPort == 0 || *conf.Args.OtherPort2 == 0 {
-			*conf.Args.OtherPort, _ = strconv.Atoi(*conf.Args.Port)
-			*conf.Args.OtherPort2, _ = strconv.Atoi(*conf.Args.Port2)
+			*conf.Args.OtherPort = *conf.Args.Port
+			*conf.Args.OtherPort2 = *conf.Args.Port2
 		}
 		Info("other addr %s:%d,%d bound, restful port:%d\n", *conf.Args.OtherIP,
 			*conf.Args.OtherPort, *conf.Args.OtherPort2, *conf.Args.OtherHttp)
@@ -212,7 +205,7 @@ func startServices() {
 			stun.ListenUDP("udp4", *conf.Args.ServiceIP, *conf.Args.Port)
 		}
 	}(wg)
-	if *conf.Args.Port2 != "" {
+	if *conf.Args.Port2 != 0 {
 		wg.Add(1)
 		go func(wg *sync.WaitGroup) {
 			defer wg.Done()
@@ -235,7 +228,7 @@ func startServices() {
 			stun.ListenTCP("tcp4", *conf.Args.ServiceIP, *conf.Args.Port)
 		}
 	}(wg)
-	if *conf.Args.Port2 != "" {
+	if *conf.Args.Port2 != 0 {
 		wg.Add(1)
 		go func(wg *sync.WaitGroup) {
 			defer wg.Done()

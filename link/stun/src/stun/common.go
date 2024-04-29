@@ -195,7 +195,7 @@ func (c *dummyConn) SetWriteDeadline(t time.Time) error {
 
 // -------------------------------------------------------------------------------------------------
 
-func ListenTCP(network, ip, port string) error {
+func ListenTCP(network, ip string, port int) error {
 
 	var tlsconf *tls.Config
 	if len(conf.Args.Certs) > 0 {
@@ -226,7 +226,7 @@ func ListenTCP(network, ip, port string) error {
 		}
 	}
 
-	tcp, err := net.ResolveTCPAddr(network, ip + ":" + port)
+	tcp, err := net.ResolveTCPAddr(network, ip + ":" + strconv.Itoa(port))
 	if err != nil {
 		return fmt.Errorf("resolve TCP: %s", err)
 	}
@@ -234,7 +234,7 @@ func ListenTCP(network, ip, port string) error {
 	if err != nil {
 		return fmt.Errorf("listen TCP: %s", err)
 	}
-	Info("listening on %s://%s:%s", network, ip, port)
+	Info("listening on %s://%s:%s", network, ip, strconv.Itoa(port))
 	defer l.Close()
 
 	for {
@@ -247,14 +247,14 @@ func ListenTCP(network, ip, port string) error {
 	}
 }
 
-func ListenUDP(network, ip, port string) error {
+func ListenUDP(network, ip string, port int) error {
 
 	n := runtime.NumCPU() / 3
 	if n < 1 {
 		n = 1
 	}
 	sem := make(chan bool, n)
-	Info("initialize %d threads listening on %s://%s:%s", n, network, ip, port)
+	Info("initialize %d threads listening on %s://%s:%d", n, network, ip, port)
 
 	for {
 		sem <- true
@@ -264,13 +264,13 @@ func ListenUDP(network, ip, port string) error {
 	return nil
 }
 
-func handleUDP(network, ip, port string, sem chan bool) {
+func handleUDP(network, ip string, port int, sem chan bool) {
 
 	go func() error {
 
 		defer func() { <- sem }()
 
-		udp, err := net.ResolveUDPAddr(network, ip + ":" + port)
+		udp, err := net.ResolveUDPAddr(network, ip + ":" + strconv.Itoa(port))
 		if err != nil {
 			return fmt.Errorf("resolve UDP: %s", err)
 		}

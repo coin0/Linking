@@ -64,7 +64,7 @@ func logReq(req *http.Request) {
 
 // -------------------------------------------------------------------------------------------------
 
-func ListenHTTP(ip, port string) error {
+func ListenHTTP(ip string, port int) error {
 
 	mux := NewMuxer()
 
@@ -102,7 +102,7 @@ func ListenHTTP(ip, port string) error {
 	mux.Register("/get/prof", httpGetProf)
 	mux.Register("/set/prof", httpSetProf)
 
-	err := http.ListenAndServe(ip + ":" + port, mux)
+	err := http.ListenAndServe(fmt.Sprintf("%s:%d", ip, port), mux)
 	return err
 }
 

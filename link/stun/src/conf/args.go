@@ -35,18 +35,18 @@ type argument struct {
 	ServiceIPv6 *string
 	RelayedIPv6 *string
 	RelayedInf6 *string
-	Port     *string
-	Port2    *string
+	Port     *int
+	Port2    *int
 	Cert     *string
 	Key      *string
 	CertKeys arrayflags
 	Certs    []tls.Certificate
 	Realm    *string
 	Users    arrayflags
-	Http     *string
+	Http     *int
 	Log      *string
-	LogSize  *string
-	LogNum   *string
+	LogSize  *int
+	LogNum   *int
 	CpuProf  *string
 	MemProf  *string
 }
@@ -60,9 +60,9 @@ type clientArgs struct {
 	Password   *string
 	Debug      *bool
 	Log        *string
-	LogSize    *string
-	LogNum     *string
-	SelfTest   *string
+	LogSize    *int
+	LogNum     *int
+	SelfTest   *uint
 	VerifyCert *bool
 }
 

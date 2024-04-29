@@ -36,9 +36,9 @@ func init() {
 	conf.ClientArgs.Password = flag.String("p", "", "TURN/STUN server password")
 	conf.ClientArgs.Debug    = flag.Bool("d", false, "switch to turn on debug mode")
 	conf.ClientArgs.Log      = flag.String("log", "cl.log", "path for log file")
-	conf.ClientArgs.LogSize  = flag.String("logsize", "100", "log size for a single file (MB)")
-	conf.Args.LogNum         = flag.String("lognum", "6", "maximum log file number")
-	conf.ClientArgs.SelfTest = flag.String("t", "0", "perform self test (kbps)")
+	conf.ClientArgs.LogSize  = flag.Int("logsize", 100, "log size for a single file (MB)")
+	conf.ClientArgs.LogNum   = flag.Int("lognum", 6, "maximum log file number")
+	conf.ClientArgs.SelfTest = flag.Uint("t", 0, "perform self test (kbps)")
 	conf.ClientArgs.VerifyCert = flag.Bool("verify-cert", false, "verify TLS certificate chain")
 	flag.Parse()
 
@@ -555,11 +555,7 @@ func exec(input string) (err error) {
 func main() {
 
 	SetLog(*conf.ClientArgs.Log)
-	if logsize, err := strconv.Atoi(*conf.ClientArgs.LogSize); err == nil {
-		if lognum, err := strconv.Atoi(*conf.Args.LogNum); err == nil {
-			SetRotation(logsize * 1024 * 1024, lognum)
-		}
-	}
+	SetRotation(*conf.ClientArgs.LogSize * 1024 * 1024, *conf.ClientArgs.LogNum)
 
 	// create a new stunclient
 	var err error
@@ -574,8 +570,8 @@ func main() {
 	}
 
 	// if user perform TURN self test, only toggle DebugOn switch for statistics
-	if *conf.ClientArgs.SelfTest != "0" {
-		bandwidth, err := strconv.Atoi(*conf.ClientArgs.SelfTest)
+	if *conf.ClientArgs.SelfTest != 0 {
+		bandwidth := int(*conf.ClientArgs.SelfTest)
 		if err != nil {
 			fmt.Println("invalid self test bandwidth")
 			Fatal("invalid self test bandwidth")
