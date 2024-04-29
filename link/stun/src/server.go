@@ -142,6 +142,22 @@ func bindInterfaces() {
 		Info("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
 		fmt.Printf("restful addr %s:%s bound\n", *conf.Args.RestfulIP, *conf.Args.Http)
 	}
+	if len(*conf.Args.OtherIP) > 0 {
+		if len(*conf.Args.Port2) == 0 {
+			Error("alternate port is needed along with other address")
+			fmt.Println("alternate port is needed along with other address")
+			os.Exit(1)
+		}
+		// set default port number pair of other address
+		if *conf.Args.OtherPort == 0 || *conf.Args.OtherPort2 == 0 {
+			*conf.Args.OtherPort, _ = strconv.Atoi(*conf.Args.Port)
+			*conf.Args.OtherPort2, _ = strconv.Atoi(*conf.Args.Port2)
+		}
+		Info("other addr %s:%d,%d bound, restful port:%d\n", *conf.Args.OtherIP,
+			*conf.Args.OtherPort, *conf.Args.OtherPort2, *conf.Args.OtherHttp)
+		fmt.Printf("other addr %s:%d,%d bound, restful port:%d\n", *conf.Args.OtherIP,
+			*conf.Args.OtherPort, *conf.Args.OtherPort2, *conf.Args.OtherHttp)
+	}
 }
 
 func loadUsers() {
