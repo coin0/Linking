@@ -893,7 +893,7 @@ func (this *message) print(title string) {
 		case STUN_ATTR_REQUESTED_ADDRESS_FAMILY:
 			return fmt.Sprintf("(%s)", parseAddrFamilyType(attr.value[0]))
 		case STUN_ATTR_CHANGE_REQUEST:
-			return fmt.Sprintf("ip=%d, port=%d",
+			return fmt.Sprintf("ip=%t, port=%t",
 				uint8(attr.value[3]) & 0x2 > 0, uint8(attr.value[3]) & 0x4 > 0)
 		default:
 			return ""
@@ -955,7 +955,7 @@ func (this *message) print4Log() string {
 			case STUN_ATTR_REQUESTED_ADDRESS_FAMILY:
 				return fmt.Sprintf("fm=%s", parseAddrFamilyType(attr.value[0]))
 			case STUN_ATTR_CHANGE_REQUEST:
-				return fmt.Sprintf("ip=%d, port=%d",
+				return fmt.Sprintf("ip=%t, port=%t",
 					uint8(attr.value[3]) & 0x2 > 0, uint8(attr.value[3]) & 0x4 > 0)
 			default:
 				return "-"

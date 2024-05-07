@@ -717,19 +717,28 @@ func parseTransportNetType(b byte) byte {
 	return NET_TBD
 }
 
-func parseNATType(b byte) string {
+func parseNATType(b byte) (t string) {
 
 	switch b {
-	case NAT_TYPE_UNKNOWN: return "UNKNOWN"
-	case NAT_TYPE_ENDPOINT_INDEP_MAP: return "Endpoint-Independent Mapping"
-	case NAT_TYPE_ADDR_DEP_MAP: return "Address-Dependent Mapping"
-	case NAT_TYPE_ADDR_AND_PORT_DEP_MAP: return "Address and Port-Dependent Mapping"
-	case NAT_TYPE_ENDPOINT_INDEP_FILT: return "Endpoint-Independent Filtering"
-	case NAT_TYPE_ADDR_DEP_FILT: return "Address-Dependent Filtering"
-	case NAT_TYPE_ADDR_AND_PORT_DEP_FILT: return "Address and Port-Dependent Filtering"
+	case NAT_TYPE_UNKNOWN: return "Unknown"
 	case NAT_TYPE_NOT_NATED: return "Not NATed"
 	}
-	return "UNKNOWN"
+
+	switch b & 0x0f {
+	case NAT_TYPE_ENDPOINT_INDEP_MAP: t = "Endpoint-Independent Mapping"
+	case NAT_TYPE_ADDR_DEP_MAP: t = "Address-Dependent Mapping"
+	case NAT_TYPE_ADDR_AND_PORT_DEP_MAP: t = "Address and Port-Dependent Mapping"
+	default: t = "Unknown Mapping"
+	}
+
+	switch b & 0xf0 {
+	case NAT_TYPE_ENDPOINT_INDEP_FILT: t += " / Endpoint-Independent Filtering"
+	case NAT_TYPE_ADDR_DEP_FILT: t += " / Address-Dependent Filtering"
+	case NAT_TYPE_ADDR_AND_PORT_DEP_FILT: t += " / Address and Port-Dependent Filtering"
+	default: return "Unknown Filtering"
+	}
+
+	return
 }
 
 // -------------------------------------------------------------------------------------------------

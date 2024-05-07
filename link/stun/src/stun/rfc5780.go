@@ -195,8 +195,14 @@ func (cl *stunclient) pickTCPAddress() *net.TCPAddr {
 // https://datatracker.ietf.org/doc/html/rfc5780#section-4.3
 func (cl *stunclient) Probe() error {
 
+	cl.natType = NAT_TYPE_UNKNOWN
+
 	// determining NAT Mapping Behavior
 	if err := cl.probeMapping(); err != nil {
+		return err
+	}
+
+	if err := cl.probeFiltering(); err != nil {
 		return err
 	}
 
@@ -233,7 +239,7 @@ func (cl *stunclient) probeMapping() (err error) {
 
 	// examine reflexive address
 	if cl.local.Equal(cl.srflx) {
-		cl.natType = NAT_TYPE_NOT_NATED
+		cl.natType |= NAT_TYPE_NOT_NATED
 		return nil
 	}
 
@@ -269,7 +275,7 @@ func (cl *stunclient) probeMapping() (err error) {
 	}
 	srflx.Proto = cl.remote.Proto
 	if srflx.Equal(cl.srflx) {
-		cl.natType = NAT_TYPE_ENDPOINT_INDEP_MAP
+		cl.natType |= NAT_TYPE_ENDPOINT_INDEP_MAP
 		return nil
 	}
 
@@ -298,14 +304,90 @@ func (cl *stunclient) probeMapping() (err error) {
 	}
 	srflx2.Proto = cl.remote.Proto
 	if srflx2.Equal(srflx) {
-		cl.natType = NAT_TYPE_ADDR_DEP_MAP
+		cl.natType |= NAT_TYPE_ADDR_DEP_MAP
 		return nil
 	}
 
-	cl.natType = NAT_TYPE_ADDR_AND_PORT_DEP_MAP
+	cl.natType |= NAT_TYPE_ADDR_AND_PORT_DEP_MAP
 	return nil
 }
 
+func (cl *stunclient) probeFiltering() (err error) {
+
+	// test I: UDP connectivity test
+
+	// a copy from Bind() request
+	msg, _ := newBindingRequest()
+	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+	Info("client > server(%s): %s", cl.remote, msg.print4Log())
+	resp, err := cl.transmitMessage(msg)
+	if err != nil {
+		return fmt.Errorf("binding request: %s", err)
+	}
+
+	msg, err = getMessage(resp)
+	if err != nil {
+		return fmt.Errorf("binding response: %s", err)
+	}
+	if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+	Info("server(%s) > client: %s", cl.remote, msg.print4Log())
+
+	// save srflx IP address
+	cl.srflx, err = msg.getAttrXorMappedAddr()
+	if err != nil {
+		return fmt.Errorf("binding response: srflx: %s", err)
+	}
+	cl.srflx.Proto = cl.remote.Proto
+	// end of copy
+
+	// get the other server address
+	altAddr, err := msg.getAttrOtherAddress()
+	if err != nil {
+		return fmt.Errorf("get other address: %s", err)
+	}
+
+	// test II: request server to respond from alternate IP and port
+
+	msg, _ = newBindingRequest()
+	msg.addAttrChangeRequest(true, true)
+	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+	Info("client > server(%s): %s", cl.remote, msg.print4Log())
+	resp, err = cl.transmitMessage(msg)
+	if err != nil {
+		return fmt.Errorf("binding request: %s", err)
+	}
+
+	msg, err = getMessage(resp)
+	if err == nil {
+		if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", altAddr)) }
+		Info("server(%s) > client: %s", altAddr, msg.print4Log())
+		cl.natType |= NAT_TYPE_ENDPOINT_INDEP_FILT
+		return nil
+	}
+
+	// test III: request server to respond from alternate port only
+
+	msg, _ = newBindingRequest()
+	msg.addAttrChangeRequest(true, false)
+	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
+	Info("client > server(%s): %s", cl.remote, msg.print4Log())
+	resp, err = cl.transmitMessage(msg)
+	if err != nil {
+		return fmt.Errorf("binding request: %s", err)
+	}
+
+	msg, err = getMessage(resp)
+	if err == nil {
+		altAddr.IP = cl.remote.IP
+		if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", altAddr)) }
+		Info("server(%s) > client: %s", altAddr, msg.print4Log())
+		cl.natType |= NAT_TYPE_ADDR_DEP_FILT
+		return nil
+	}
+
+	cl.natType |= NAT_TYPE_ADDR_AND_PORT_DEP_FILT
+	return nil
+}
 
 func (cl *stunclient) transmitMessageToAlternate(m *message, rm *address) (resp []byte, err error) {
 
