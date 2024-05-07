@@ -810,7 +810,7 @@ func transmitTCP(conn net.Conn, r, l *address, buf []byte) error {
 func transmitUDP(conn *net.UDPConn, r, l *address, buf []byte) error {
 
 	// send message to target server
-	_, err := conn.Write(buf)
+	_, err := conn.WriteToUDP(buf, &net.UDPAddr{ IP: r.IP, Port: r.Port })
 	if err != nil {
 		return fmt.Errorf("write UDP: %s", err)
 	}

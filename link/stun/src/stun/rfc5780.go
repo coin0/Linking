@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	. "util/log"
 	"time"
+	"sync"
 )
 
 const (
@@ -237,13 +238,122 @@ func (cl *stunclient) probeMapping() (err error) {
 	}
 
 	// get the other server address
-	otherServer, err := msg.getAttrOtherAddress()
+	altAddr, err := msg.getAttrOtherAddress()
 	if err != nil {
 		return fmt.Errorf("get other address: %s", err)
 	}
-	fmt.Println(otherServer)
 
+	// test II: request alternate address with primary port
+
+	msg, _ = newBindingRequest()
+	altPort := altAddr.Port        // save alternate port
+	altAddr.Port = cl.remote.Port  // use primary port
+	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", altAddr)) }
+	Info("client > server(%s): %s", altAddr, msg.print4Log())
+	resp, err = cl.transmitMessageToAlternate(msg, altAddr)
+	if err != nil {
+		return fmt.Errorf("binding request: %s", err)
+	}
+
+	msg, err = getMessage(resp)
+	if err != nil {
+		return fmt.Errorf("binding response: %s", err)
+	}
+	if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", altAddr)) }
+	Info("server(%s) > client: %s", altAddr, msg.print4Log())
+
+	// get srflx IP address
+	srflx, err := msg.getAttrXorMappedAddr()
+	if err != nil {
+		return fmt.Errorf("binding response: srflx: %s", err)
+	}
+	srflx.Proto = cl.remote.Proto
+	if srflx.Equal(cl.srflx) {
+		cl.natType = NAT_TYPE_ENDPOINT_INDEP_MAP
+		return nil
+	}
+
+	// test III: request alternate with changed IP and port
+
+	msg, _ = newBindingRequest()
+	altAddr.Port = altPort
+	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", altAddr)) }
+	Info("client > server(%s): %s", altAddr, msg.print4Log())
+	resp, err = cl.transmitMessageToAlternate(msg, altAddr)
+	if err != nil {
+		return fmt.Errorf("binding request: %s", err)
+	}
+
+	msg, err = getMessage(resp)
+	if err != nil {
+		return fmt.Errorf("binding response: %s", err)
+	}
+	if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", altAddr)) }
+	Info("server(%s) > client: %s", altAddr, msg.print4Log())
+
+	// get srflx IP address
+	srflx2, err := msg.getAttrXorMappedAddr()
+	if err != nil {
+		return fmt.Errorf("binding response: srflx: %s", err)
+	}
+	srflx2.Proto = cl.remote.Proto
+	if srflx2.Equal(srflx) {
+		cl.natType = NAT_TYPE_ADDR_DEP_MAP
+		return nil
+	}
+
+	cl.natType = NAT_TYPE_ADDR_AND_PORT_DEP_MAP
 	return nil
+}
+
+
+func (cl *stunclient) transmitMessageToAlternate(m *message, rm *address) (resp []byte, err error) {
+
+	cl.reqMutex.Lock()
+	defer cl.reqMutex.Unlock()
+
+	// send binding request to alternate stun server
+	if !m.isBindingRequest() {
+		return nil, fmt.Errorf("not a valid binding request")
+	}
+	if cl.udpConn == nil {
+		return nil, fmt.Errorf("RFC5780: only udp protocol is allowed")
+	}
+
+	wg := &sync.WaitGroup{}
+	ech := make(chan error)
+
+	cl.responseSub.transactionID = m.transactionID
+	cl.responseSub.listener = make(chan []byte)
+
+	// reset transaction ID and clear receiving pipe
+	defer func() {
+		cl.responseSub.transactionID = []byte{}
+		close(cl.responseSub.listener)
+	}()
+
+	// wait for response or timeout event
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		select {
+		case <-time.NewTimer(time.Second * STUN_CLIENT_REQUEST_TIMEOUT).C:
+			err = fmt.Errorf("timeout")
+		case resp = <-cl.responseSub.listener:
+		case err = <-ech:
+		}
+	}()
+
+	start := time.Now()
+	_, e := cl.udpConn.WriteToUDP(m.buffer(), &net.UDPAddr{ IP: rm.IP, Port: rm.Port })
+	if e != nil {
+		ech <- e
+	}
+	wg.Wait()
+	end := time.Now()
+	Info("timeline: %s %d ms", m.methodName + " " + m.encodingName, end.Sub(start).Milliseconds())
+
+	return
 }
 
 func (cl *stunclient) LocalAddr() (string, string, int, error) {

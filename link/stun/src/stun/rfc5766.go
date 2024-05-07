@@ -1928,12 +1928,13 @@ func (cl *stunclient) connectUDP() error {
 	if err != nil {
 		return fmt.Errorf("resolve UDP: %s", err)
 	}
+	cl.remote.IP = raddr.IP
 	end := time.Now()
 	Info("timeline: name resolving %d ms", end.Sub(start).Milliseconds())
 
 	// save UDP connection
 	start = time.Now()
-	conn, err := net.DialUDP("udp", cl.pickUDPAddress(), raddr)
+	conn, err := net.ListenUDP("udp", cl.pickUDPAddress())
 	if err != nil {
 		return fmt.Errorf("dial UDP: %s", err)
 	}
