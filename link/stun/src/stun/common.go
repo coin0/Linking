@@ -735,7 +735,7 @@ func parseNATType(b byte) (t string) {
 	case NAT_TYPE_ENDPOINT_INDEP_FILT: t += " / Endpoint-Independent Filtering"
 	case NAT_TYPE_ADDR_DEP_FILT: t += " / Address-Dependent Filtering"
 	case NAT_TYPE_ADDR_AND_PORT_DEP_FILT: t += " / Address and Port-Dependent Filtering"
-	default: return "Unknown Filtering"
+	default: t += "Unknown Filtering"
 	}
 
 	return

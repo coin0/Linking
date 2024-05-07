@@ -349,16 +349,17 @@ func (cl *stunclient) probeFiltering() (err error) {
 	// test II: request server to respond from alternate IP and port
 
 	msg, _ = newBindingRequest()
-	msg.addAttrChangeRequest(true, true)
+	msg.length += msg.addAttrChangeRequest(true, true)
 	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 	Info("client > server(%s): %s", cl.remote, msg.print4Log())
 	resp, err = cl.transmitMessage(msg)
-	if err != nil {
-		return fmt.Errorf("binding request: %s", err)
-	}
-
-	msg, err = getMessage(resp)
 	if err == nil {
+		// validate response first
+		msg, err = getMessage(resp)
+		if err != nil {
+			return fmt.Errorf("binding response: %s", err)
+		}
+
 		if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", altAddr)) }
 		Info("server(%s) > client: %s", altAddr, msg.print4Log())
 		cl.natType |= NAT_TYPE_ENDPOINT_INDEP_FILT
@@ -368,16 +369,17 @@ func (cl *stunclient) probeFiltering() (err error) {
 	// test III: request server to respond from alternate port only
 
 	msg, _ = newBindingRequest()
-	msg.addAttrChangeRequest(true, false)
+	msg.length += msg.addAttrChangeRequest(true, false)
 	if cl.DebugOn { msg.print(fmt.Sprintf("client > server(%s)", cl.remote)) }
 	Info("client > server(%s): %s", cl.remote, msg.print4Log())
 	resp, err = cl.transmitMessage(msg)
-	if err != nil {
-		return fmt.Errorf("binding request: %s", err)
-	}
-
-	msg, err = getMessage(resp)
 	if err == nil {
+		// validate response
+		msg, err = getMessage(resp)
+		if err != nil {
+			return fmt.Errorf("binding response: %s", err)
+		}
+
 		altAddr.IP = cl.remote.IP
 		if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", altAddr)) }
 		Info("server(%s) > client: %s", altAddr, msg.print4Log())
