@@ -383,6 +383,7 @@ func (this *message) doBindingRequest(r *address, conn net.Conn) (*message, erro
 		*conf.Args.OtherPort2 != 0 && *conf.Args.OtherHttp != 0 {
 
 		// insert RESPONSE-ORIGIN attribute
+		var other *address
 		local := &address{}
 		local.ParseNetAddr(conn.LocalAddr())
 		len += msg.addAttrResponseOrigin(local)
@@ -398,20 +399,24 @@ func (this *message) doBindingRequest(r *address, conn net.Conn) (*message, erro
 			} else {
 				port = int(*conf.Args.OtherPort)
 			}
-			len += msg.addAttrOtherAddress(&address{ IP: otherIP, Port: port })
+			other = &address{ IP: otherIP, Port: port }
+			len += msg.addAttrOtherAddress(other)
 		}
 
 		// handle CHANGE-REQUEST
-		if changePort, changeIP, err := this.getAttrChangeRequest(); err == nil  {
-			if changePort {
-				// TODO
-			}
+		if changePort, changeIP, err := this.getAttrChangeRequest(); err == nil && other != nil {
 			if changeIP {
-				// TODO
+				if changePort {
+					requestBindingResponse(this.transactionID, r, conn, other.Port, 0)
+				} else {
+					requestBindingResponse(this.transactionID, r, conn, local.Port, 0)
+				}
+				return nil, nil // will reply from alternate server
+			} else if changePort {
+				SendBindingResponse(
+					this.transactionID, r.IP.String(), local.IP.String(), r.Port, other.Port, 0)
+				return nil, nil // will reply from other port
 			}
-
-			// silently drop this message
-			return nil, nil
 		}
 	} else if _, _, err := this.getAttrChangeRequest(); err == nil {
 		// respond error if no support for other server address

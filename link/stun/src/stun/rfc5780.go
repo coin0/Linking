@@ -8,6 +8,11 @@ import (
 	. "util/log"
 	"time"
 	"sync"
+	"conf"
+	"net/http"
+	"strconv"
+	"encoding/base64"
+	"io"
 )
 
 const (
@@ -35,6 +40,159 @@ func selectPort() int {
 	total := STUN_NAT_PROBE_MAX_PORT - STUN_NAT_PROBE_MIN_PORT + 1
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	return STUN_NAT_PROBE_MIN_PORT + int(r.Uint32()) % total
+}
+
+// -------------------------------------------------------------------------------------------------
+
+// these utility functions implement http IPC support that follows rfc5780 requiring
+// stun server to have two IP addresses for stun client detect NAT behaviors
+
+// requestBindingResponse() will be called on-demand when CHANGE-REQUEST IP address
+// flag is present, a HTTP request should be made to alternate service IP given by
+// startup arguments to respond to the incoming binding request
+func requestBindingResponse(tranID []byte, srflx *address, conn net.Conn, srcPort, dstPort int) {
+
+	go func() {
+		if *conf.Args.OtherIP == "" || *conf.Args.OtherHttp == 0 {
+			return
+		}
+
+		idStr := base64.URLEncoding.EncodeToString(tranID)
+		tr := &http.Transport{
+			MaxIdleConns: 10,
+			IdleConnTimeout: 10 * time.Second,
+		}
+		client := &http.Client{
+			Transport: tr,
+			Timeout: 10 * time.Second,
+		}
+
+		url := "http://" + *conf.Args.OtherIP + ":" + strconv.Itoa(*conf.Args.OtherHttp)
+		url += "/stun/response"
+		url += "?id=" + idStr + "&xip=" + srflx.IP.String() + "&xport=" + strconv.Itoa(srflx.Port)
+		url += "&origip=" + *conf.Args.OtherIP + "&origport=" + strconv.Itoa(srcPort)
+		url += "&respport=" + strconv.Itoa(dstPort)
+
+		respondError := func(e error) {
+			// reply an explicit error for this stun binding request
+			msg := &message{}
+			msg.method = STUN_MSG_METHOD_BINDING
+			msg.transactionID = append(msg.transactionID, tranID...)
+			errMsg := msg.newErrorMessage(STUN_ERR_SERVER_ERROR, "invalid alternate address or port")
+
+			udpConn, _ := conn.(*net.UDPConn)
+			udpConn.WriteToUDP(errMsg.buffer(), &net.UDPAddr{ IP: srflx.IP, Port: srflx.Port })
+
+			// rfc5780: only UDP is supported for filtering probe
+			srflx.Proto = NET_UDP
+			Error("[%s] request bind response: %s, err: %s", keygen(srflx), url, e)
+		}
+
+		// request alternate server
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			respondError(err)
+			return
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			respondError(err)
+			return
+		}
+		// return binding error response if http status code is not 200
+		if resp.StatusCode != http.StatusOK {
+			var b []byte
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				respondError(err)
+				return
+			}
+			respondError(fmt.Errorf("bad request: %s", string(b)))
+			return
+		}
+
+		Info("[%s] request bind response: %s, succeeded", keygen(srflx), url)
+	}()
+}
+
+// SendBindingResponse() needs be public so that restful service may call this funcion
+// this function will send stun binding response on behalf of original service IP address or
+// reply from a different udp port when change-port flag is present in CHANGE-REQUEST
+func SendBindingResponse(tranID []byte, xorIPStr, origIPStr string, xorPort, origPort, respPort int) error {
+
+	if len(tranID) != 12 {
+		return fmt.Errorf("invalid transaction ID length")
+	}
+	xorIP := net.ParseIP(xorIPStr)
+	if xorIP == nil {
+		return fmt.Errorf("invalid srflx IP address")
+	}
+	origIP := net.ParseIP(origIPStr)
+	if origIP == nil {
+		return fmt.Errorf("invalid response origin IP address")
+	}
+
+	found := false
+	udpConns.getAll(
+		func(conn net.Conn) bool{
+			// get one available UDPConn with the listening port we want to respond from
+			if _, p, err := net.SplitHostPort(conn.LocalAddr().String()); err != nil {
+				return true // continue
+			} else {
+				port, _ := strconv.Atoi(p)
+				if origPort != port {
+					return true // continue
+				}
+			}
+			found = true
+
+			// use response port as destination port if required by binding request
+			dstPort := xorPort
+			if respPort > 0 {
+				dstPort = respPort
+			}
+			dstIP := xorIP
+
+			// build a stun binding response and send it from origPort
+			msg := &message{}
+			msg.method = STUN_MSG_METHOD_BINDING
+			msg.transactionID = append(msg.transactionID, tranID...)
+			msg.encoding = STUN_MSG_SUCCESS
+			msg.methodName, msg.encodingName = parseMessageType(msg.method, msg.encoding)
+
+			// client reflexive address
+			srflxAddr := &address{ IP: xorIP,  Port: xorPort, Proto: NET_UDP }
+			len := msg.addAttrXorMappedAddr(srflxAddr)
+
+			// server response origin
+			origAddr := &address{ IP: origIP, Port: origPort, Proto: NET_UDP }
+			len += msg.addAttrResponseOrigin(origAddr)
+
+			// alternate server address
+			if otherIP := net.ParseIP(*conf.Args.OtherIP); otherIP != nil {
+				// always return alternate port number that differs from the port sending response
+				otherPort := *conf.Args.OtherPort
+				if origPort == *conf.Args.OtherPort {
+					otherPort = *conf.Args.OtherPort2
+				}
+				len += msg.addAttrOtherAddress(&address{ IP: otherIP, Port: otherPort})
+			}
+			msg.length = len
+
+			Info("[%s] %s", keygen(srflxAddr), msg.print4Log())
+
+			// send binding response
+			udpConn, _ := conn.(*net.UDPConn)
+			udpConn.WriteToUDP(msg.buffer(), &net.UDPAddr{ IP: dstIP, Port: dstPort })
+
+			return false // break
+		},
+	)
+
+	if !found {
+		return fmt.Errorf("no such listening port: %d", origPort)
+	}
+	return nil
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -362,7 +520,12 @@ func (cl *stunclient) probeFiltering() (err error) {
 
 		if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", altAddr)) }
 		Info("server(%s) > client: %s", altAddr, msg.print4Log())
-		cl.natType |= NAT_TYPE_ENDPOINT_INDEP_FILT
+
+		if msg.isErrorResponse() {
+			return fmt.Errorf("server error")
+		} else {
+			cl.natType |= NAT_TYPE_ENDPOINT_INDEP_FILT
+		}
 		return nil
 	}
 
@@ -429,6 +592,7 @@ func (cl *stunclient) transmitMessageToAlternate(m *message, rm *address) (resp 
 	}()
 
 	start := time.Now()
+	// TODO - support TCP mapping behavior discovery
 	_, e := cl.udpConn.WriteToUDP(m.buffer(), &net.UDPAddr{ IP: rm.IP, Port: rm.Port })
 	if e != nil {
 		ech <- e

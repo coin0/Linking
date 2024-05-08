@@ -62,6 +62,32 @@ func logReq(req *http.Request) {
 	}
 }
 
+func parseURLQuery(req *http.Request, mandatory, optional []string) (map[string]string, error) {
+
+	res := map[string]string{}
+
+	// parse query string array
+	q := req.URL.Query()
+
+	// scan mandatory parameters
+	for _, key := range mandatory {
+		if val, ok := q[key]; !ok {
+			return nil, fmt.Errorf("key %s not found", key)
+		} else {
+			res[key] = val[0]
+		}
+	}
+
+	// scan optional parameters
+	for _, key := range optional {
+		if val, ok := q[key]; ok {
+			res[key] = val[0]
+		}
+	}
+
+	return res, nil
+}
+
 // -------------------------------------------------------------------------------------------------
 
 func ListenHTTP(ip string, port int) error {
@@ -94,6 +120,9 @@ func ListenHTTP(ip string, port int) error {
 
 	// port
 	mux.Register("/port/relay", handlePortRelay)
+
+	// stun
+	mux.Register("/stun/response", handleStunResponse)
 
 	// for debugging
 	mux.Register("/get/alloc", httpGetAlloc)

@@ -69,6 +69,12 @@ type tcpPool struct {
 	lck     *sync.Mutex
 }
 
+type udpPool struct {
+	conns   map[uint]net.Conn
+	index   uint
+	lck     *sync.Mutex
+}
+
 // a dummy connection to hook tlsConn.Read() in order to retain the
 // first STUN packet for TURN TCP
 type dummyConn struct {
@@ -81,6 +87,11 @@ type dummyConn struct {
 var (
 	tcpConns = &tcpPool{
 		conns: map[allockey]net.Conn{},
+		lck:   &sync.Mutex{},
+	}
+	udpConns = &udpPool{
+		conns: map[uint]net.Conn{},
+		index: 0,
 		lck:   &sync.Mutex{},
 	}
 )
@@ -125,6 +136,40 @@ func (pool *tcpPool) getAll(cb func(net.Conn)) {
 	defer pool.lck.Unlock()
 	for _, c := range pool.conns {
 		cb(c)
+	}
+}
+
+func (pool *udpPool) set(conn net.Conn) uint {
+
+	pool.lck.Lock()
+	defer pool.lck.Unlock()
+
+	for {
+		if _, ok := pool.conns[pool.index]; !ok {
+			break
+		}
+		pool.index++
+	}
+
+	pool.conns[pool.index] = conn
+	pool.index++
+
+	return pool.index - 1
+}
+
+func (pool *udpPool) del(index uint) {
+
+	pool.lck.Lock()
+	defer pool.lck.Unlock()
+	delete(pool.conns, index)
+}
+
+func (pool *udpPool) getAll(cb func(net.Conn) bool) {
+
+	pool.lck.Lock()
+	defer pool.lck.Unlock()
+	for _, c := range pool.conns {
+		if !cb(c) { break }
 	}
 }
 
@@ -284,6 +329,8 @@ func handleUDP(network, ip string, port int, sem chan bool) {
 		udpConn, _ := l.(*net.UDPConn)
 
 		defer udpConn.Close()
+		index := udpConns.set(udpConn)
+		defer udpConns.del(index)
 
 		// set UDP socket options
 		udpConn.SetReadBuffer(UDP_SO_RECVBUF_SIZE)
