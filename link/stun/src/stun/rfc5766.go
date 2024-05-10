@@ -234,6 +234,7 @@ type stunclient struct {
 
 	// NAT behavior discovery type
 	natType     byte
+	natLifetime uint
 
 	// reflexive address
 	srflx       *address

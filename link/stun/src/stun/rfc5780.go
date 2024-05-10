@@ -351,7 +351,7 @@ func (cl *stunclient) pickTCPAddress() *net.TCPAddr {
 
 // this interface mostly follows the flow defined in the standard document
 // https://datatracker.ietf.org/doc/html/rfc5780#section-4.3
-func (cl *stunclient) Probe() error {
+func (cl *stunclient) ProbeNatType() error {
 
 	cl.natType = NAT_TYPE_UNKNOWN
 
@@ -364,6 +364,50 @@ func (cl *stunclient) Probe() error {
 		return err
 	}
 
+	return nil
+}
+
+// https://datatracker.ietf.org/doc/html/rfc5780#section-4.6
+func (cl *stunclient) ProbeNatLifetime() error {
+
+	curr := 10 // seconds
+
+	const INIT_MAX = -1
+	const PROBE_LIMIT = 320 // seconds
+	const PROBE_MULTI = 2 // multiplier of probe interval
+	min := 0
+	max := INIT_MAX
+
+	for {
+		if cl.DebugOn {
+			fmt.Printf("\n*** probing binding lifetime threshold %d sec ***\n\n", curr)
+			Info("*** probing binding lifetime threshold %d sec ***", curr)
+		}
+
+		// we must exit this test immediately when receiving an
+		// explicit bad request error code from stun server
+		if ok, err := cl.probeLifetime(curr); err != nil  {
+			return err
+		} else {
+			if ok {
+				min = curr
+			} else {
+				max = curr
+			}
+		}
+
+		if max == INIT_MAX {
+			if curr * PROBE_MULTI > PROBE_LIMIT { break }
+			// probe lifetime uplimit
+			curr *= PROBE_MULTI
+		} else {
+			if curr == (min + max) / 2 { break }
+			// binary search for lifetime boundary
+			curr = (min + max) / 2
+		}
+	}
+
+	cl.natLifetime = uint(curr)
 	return nil
 }
 
@@ -554,6 +598,101 @@ func (cl *stunclient) probeFiltering() (err error) {
 	return nil
 }
 
+func (cl *stunclient) probeLifetime(seconds int) (bool, error) {
+
+	/// refresh NAT binding by sending stun binding request from original port
+	if err := cl.Bind(); err != nil {
+		return false, err
+	}
+
+	/// no more outbound traffic from the refreshed server reflexive address
+	time.Sleep(time.Second * time.Duration(seconds))
+
+	/// create another udp socket on differnet port
+	udp, err := net.ListenUDP("udp", cl.pickUDPAddress())
+	if err != nil {
+		return false, fmt.Errorf("cannot listen another UDP port")
+	}
+
+	/// verify stun binding works for this local udp socket
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	// create a go routine to receive binding response
+	buf := make([]byte, DEFAULT_MTU)
+	go func() {
+		defer wg.Done()
+		// timeout in 10 sec
+		udp.SetDeadline(time.Now().Add(time.Second * time.Duration(STUN_CLIENT_REQUEST_TIMEOUT)))
+		_, err = udp.Read(buf)
+	}()
+	// send binding request and wait for goroutine to exit
+	msg, _ := newBindingRequest()
+	if cl.DebugOn { msg.print(fmt.Sprintf("client(%s) > server(%s)", udp.LocalAddr().String(), cl.remote)) }
+	Info("client(%s) > server(%s): %s", udp.LocalAddr().String(), cl.remote, msg.print4Log())
+	_, err = udp.WriteToUDP(msg.buffer(), &net.UDPAddr{ IP: cl.remote.IP, Port: cl.remote.Port })
+	if err != nil {
+		return false, fmt.Errorf("send binding request from other port: %s", err)
+	}
+	wg.Wait()
+	if err != nil {
+		return false, fmt.Errorf("receive binding response from other port: %s", err)
+	}
+	msg, err = getMessage(buf)
+	if err != nil {
+		return false, fmt.Errorf("get binding response from other port: %s", err)
+	}
+	if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client(%s)", cl.remote, udp.LocalAddr().String())) }
+	Info("server(%s) > client(%s): %s", cl.remote, udp.LocalAddr().String(), msg.print4Log())
+
+	/// send binding request with RESPONSE-PORT (cl.srflx.Port)
+	msg, _ = newBindingRequest()
+	msg.length += msg.addAttrResponsePort(uint16(cl.srflx.Port))
+	wg = &sync.WaitGroup{}
+	ech := make(chan error)
+	// register transaction ID
+	cl.responseSub.transactionID = msg.transactionID
+	cl.responseSub.listener = make(chan []byte)
+	// reset transaction ID and clear receiving pipe
+	defer func() {
+		cl.responseSub.transactionID = []byte{}
+		close(cl.responseSub.listener)
+	}()
+	// wait for response or timeout
+	wg.Add(1)
+	var resp []byte
+	go func() {
+		defer wg.Done()
+		select {
+		case <-time.NewTimer(time.Second * STUN_CLIENT_REQUEST_TIMEOUT).C:
+			err = fmt.Errorf("timeout")
+		case resp = <-cl.responseSub.listener:
+		case <-ech:
+		}
+	}()
+	// send stun binding message and block till response or timeout
+	if cl.DebugOn { msg.print(fmt.Sprintf("client(%s) > server(%s)", udp.LocalAddr().String(), cl.remote)) }
+	Info("client(%s) > server(%s): %s", udp.LocalAddr().String(), cl.remote, msg.print4Log())
+	_, e := udp.WriteToUDP(msg.buffer(), &net.UDPAddr{ IP: cl.remote.IP, Port: cl.remote.Port })
+	if e != nil {
+		ech <- e // notify go routine to exit
+		return false, e
+	}
+	wg.Wait()
+
+	/// check if binding response is received from original port
+	if resp == nil {
+		// the only reason is response timeout
+		return false, nil
+	}
+	msg, err = getMessage(resp)
+	if err != nil {
+		return false, fmt.Errorf("get binding response from original port: %s", err)
+	}
+	if cl.DebugOn { msg.print(fmt.Sprintf("server(%s) > client", cl.remote)) }
+	Info("server(%s) > client: %s", cl.remote, msg.print4Log())
+	return true, nil
+}
+
 func (cl *stunclient) transmitMessageToAlternate(m *message, rm *address) (resp []byte, err error) {
 
 	cl.reqMutex.Lock()
@@ -616,4 +755,9 @@ func (cl *stunclient) LocalAddr() (string, string, int, error) {
 func (cl *stunclient) NATTypeString() string {
 
 	return parseNATType(cl.natType)
+}
+
+func (cl *stunclient) NATLifetime() uint {
+
+	return cl.natLifetime
 }

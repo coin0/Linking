@@ -375,7 +375,15 @@ func (this *message) doBindingRequest(r *address, conn net.Conn) (*message, erro
 	// add xor port and address
 	len := msg.addAttrXorMappedAddr(r)
 
-	// rfc5780: handle NAT discovery behavior
+	// rfc5780: get RESPONSE-PORT attribute
+	var respPort int
+	p, err := this.getAttrResponsePort()
+	respPort = int(p)
+	if err != nil {
+		respPort = 0
+	}
+
+	// rfc5780: handle NAT behavior discovery
 	//          in this implementation a second IP is not mandatory when change-request is received
 	//          current server sends restful API to the other server responding with required response
 	//          port, therefore other-ip other-port other-alt-port and other-restful-port MUST be provided.
@@ -407,20 +415,29 @@ func (this *message) doBindingRequest(r *address, conn net.Conn) (*message, erro
 		if changePort, changeIP, err := this.getAttrChangeRequest(); err == nil && other != nil {
 			if changeIP {
 				if changePort {
-					requestBindingResponse(this.transactionID, r, conn, other.Port, 0)
+					requestBindingResponse(this.transactionID, r, conn, other.Port, respPort)
 				} else {
-					requestBindingResponse(this.transactionID, r, conn, local.Port, 0)
+					requestBindingResponse(this.transactionID, r, conn, local.Port, respPort)
 				}
 				return nil, nil // will reply from alternate server
 			} else if changePort {
-				SendBindingResponse(
-					this.transactionID, r.IP.String(), local.IP.String(), r.Port, other.Port, 0)
+				SendBindingResponse(this.transactionID, r.IP.String(), local.IP.String(),
+					r.Port, other.Port, respPort)
 				return nil, nil // will reply from other port
 			}
 		}
 	} else if _, _, err := this.getAttrChangeRequest(); err == nil {
 		// respond error if no support for other server address
 		return this.newErrorMessage(STUN_ERR_UNKNOWN_ATTRIBUTE, "CHANGE-REQUEST is not supported"), nil
+	}
+
+	// rfc5780: handle NAT lifetime discovery
+	//          RESPONSE-PORT requires stun server to send binding response to specified port of srflx address
+	if respPort > 0 {
+		local := &address{}
+		local.ParseNetAddr(conn.LocalAddr())
+		SendBindingResponse(this.transactionID, r.IP.String(), local.IP.String(), r.Port, local.Port, respPort)
+		return nil, nil // will reply to other port
 	}
 
 	msg.length = len
