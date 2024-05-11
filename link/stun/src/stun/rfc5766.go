@@ -1787,14 +1787,18 @@ func (ch *channelData) print(title string) {
 
 func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 
+	return NewClient2("", 0, ip, port, proto)
+}
+
+func NewClient2(localIP string, localPort int, remoteIP string, remotePort int, proto string) (cl *stunclient, err error) {
+
 	// initialize the client
 	cl = &stunclient{
 		remote: &address{
-			Host: ip,
-			IP: net.ParseIP(ip),
-			Port: port,
+			Host: remoteIP,
+			IP: net.ParseIP(remoteIP),
+			Port: remotePort,
 		},
-		local: &address{},
 		channels: map[allockey]uint16{},
 		tcpBuffer: []byte{},
 		dataConns: &tcpPool{
@@ -1815,6 +1819,14 @@ func NewClient(ip string, port int, proto string) (cl *stunclient, err error) {
 			listener: make(chan []byte),
 		},
 		reqMutex: &sync.Mutex{},
+	}
+
+	if localIP != "" || localPort > 0 {
+		cl.local = &address{
+			Host: localIP,
+			IP: net.ParseIP(localIP),
+			Port: localPort,
+		}
 	}
 
 	// try to connect to remote server by given protocol
@@ -1864,7 +1876,16 @@ func (cl *stunclient) connectTCP(connType byte) error {
 	Info("timeline: name resolving %d ms", end.Sub(start).Milliseconds())
 
 	start = time.Now()
-	tcpConn, err := net.DialTCP("tcp", cl.pickTCPAddress(), raddr)
+	laddr := &net.TCPAddr{}
+	if cl.local == nil {
+		laddr = cl.pickTCPAddress()
+		// create an empty local address, will parse real addr from conn
+		cl.local = &address{}
+	} else {
+		laddr.IP = cl.local.IP
+		laddr.Port = cl.local.Port
+	}
+	tcpConn, err := net.DialTCP("tcp", laddr, raddr)
 	if err != nil {
 		return fmt.Errorf("dial TCP: %s", err)
 	}
@@ -1935,7 +1956,16 @@ func (cl *stunclient) connectUDP() error {
 
 	// save UDP connection
 	start = time.Now()
-	conn, err := net.ListenUDP("udp", cl.pickUDPAddress())
+	laddr := &net.UDPAddr{}
+	if cl.local == nil {
+		laddr = cl.pickUDPAddress()
+		// create an empty local address, will parse real addr from conn
+		cl.local = &address{}
+	} else {
+		laddr.IP = cl.local.IP
+		laddr.Port = cl.local.Port
+	}
+	conn, err := net.ListenUDP("udp", laddr)
 	if err != nil {
 		return fmt.Errorf("dial UDP: %s", err)
 	}

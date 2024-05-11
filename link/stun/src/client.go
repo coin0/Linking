@@ -400,7 +400,9 @@ func testPort(trans string, life int) error {
 	start := time.Now()
 
 	for i := 0;; i++ {
-		cl, err := stun.NewClient(
+		cl, err := stun.NewClient2(
+			"anyip", // an invalid ip results in nil net.IP (any IP)
+			0,
 			conf.ClientArgs.ServerIP,
 			conf.ClientArgs.ServerPort,
 			conf.ClientArgs.Proto,
@@ -438,12 +440,15 @@ func exec(input string) (err error) {
 
 	switch []byte(input)[0] {
 	case 'n':
-		if client, err = stun.NewClient(
+		if cl, e := stun.NewClient(
 			conf.ClientArgs.ServerIP,
 			conf.ClientArgs.ServerPort,
 			conf.ClientArgs.Proto,
-		); err == nil {
+		); e == nil {
+			client = cl
 			client.DebugOn = *conf.ClientArgs.Debug
+		} else {
+			err = e
 		}
 	case 'b':
 		err = client.Bind()
