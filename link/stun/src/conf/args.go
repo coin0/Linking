@@ -55,6 +55,8 @@ type clientArgs struct {
 
 	ServerIP   string
 	ServerPort int
+	ClientIP   string
+	ClientPort int
 	Proto      string
 	Username   *string
 	Password   *string

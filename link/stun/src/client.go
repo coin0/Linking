@@ -31,7 +31,8 @@ var (
 
 func init() {
 
-	addr := flag.String("a", "udp://127.0.0.1:3478", "TURN/STUN server address")
+	raddr := flag.String("r", "udp://127.0.0.1:3478", "TURN/STUN server address")
+	laddr := flag.String("l", "udp://:0", "local address")
 	conf.ClientArgs.Username = flag.String("u", "", "TURN/STUN server username")
 	conf.ClientArgs.Password = flag.String("p", "", "TURN/STUN server password")
 	conf.ClientArgs.Debug    = flag.Bool("d", false, "switch to turn on debug mode")
@@ -43,7 +44,8 @@ func init() {
 	flag.Parse()
 
 	// parse server address
-	conf.ClientArgs.Proto, conf.ClientArgs.ServerIP, conf.ClientArgs.ServerPort = parseAddr(*addr)
+	conf.ClientArgs.Proto, conf.ClientArgs.ServerIP, conf.ClientArgs.ServerPort = parseAddr(*raddr)
+	conf.ClientArgs.Proto, conf.ClientArgs.ClientIP, conf.ClientArgs.ClientPort = parseAddr(*laddr)
 }
 
 func parseAddr(addr string) (proto string, ip string, port int) {
@@ -440,7 +442,9 @@ func exec(input string) (err error) {
 
 	switch []byte(input)[0] {
 	case 'n':
-		if cl, e := stun.NewClient(
+		if cl, e := stun.NewClient2(
+			conf.ClientArgs.ClientIP,
+			conf.ClientArgs.ClientPort,
 			conf.ClientArgs.ServerIP,
 			conf.ClientArgs.ServerPort,
 			conf.ClientArgs.Proto,
@@ -568,7 +572,9 @@ func main() {
 
 	// create a new stunclient
 	var err error
-	client, err = stun.NewClient(
+	client, err = stun.NewClient2(
+		conf.ClientArgs.ClientIP,
+		conf.ClientArgs.ClientPort,
 		conf.ClientArgs.ServerIP,
 		conf.ClientArgs.ServerPort,
 		conf.ClientArgs.Proto,
