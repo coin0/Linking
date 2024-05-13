@@ -757,6 +757,11 @@ func (cl *stunclient) NATTypeString() string {
 	return parseNATType(cl.natType)
 }
 
+func (cl *stunclient) NATType() byte {
+
+	return cl.natType
+}
+
 func (cl *stunclient) NATLifetime() uint {
 
 	return cl.natLifetime
