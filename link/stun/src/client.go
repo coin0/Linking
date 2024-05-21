@@ -32,7 +32,7 @@ var (
 func init() {
 
 	raddr := flag.String("r", "udp://127.0.0.1:3478", "TURN/STUN server address")
-	laddr := flag.String("l", "udp://:0", "local address")
+	laddr := flag.String("l", "", "local address")
 	conf.ClientArgs.Username = flag.String("u", "", "TURN/STUN server username")
 	conf.ClientArgs.Password = flag.String("p", "", "TURN/STUN server password")
 	conf.ClientArgs.Debug    = flag.Bool("d", false, "switch to turn on debug mode")
@@ -45,7 +45,18 @@ func init() {
 
 	// parse server address
 	conf.ClientArgs.Proto, conf.ClientArgs.ServerIP, conf.ClientArgs.ServerPort = parseAddr(*raddr)
-	conf.ClientArgs.Proto, conf.ClientArgs.ClientIP, conf.ClientArgs.ClientPort = parseAddr(*laddr)
+	// parse client address and bind ANY_IP and ANY_PORT if it's left blank
+	if *laddr == "" {
+		conf.ClientArgs.ClientIP, conf.ClientArgs.ClientPort = "", 0
+	} else {
+		// check if local and remote protocols are consistent
+		var proto string
+		proto, conf.ClientArgs.ClientIP, conf.ClientArgs.ClientPort = parseAddr(*laddr)
+		if proto != conf.ClientArgs.Proto {
+			fmt.Println("protocol mismatch")
+			os.Exit(1)
+		}
+	}
 }
 
 func parseAddr(addr string) (proto string, ip string, port int) {
