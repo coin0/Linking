@@ -49,6 +49,7 @@ type argument struct {
 	LogNum   *int
 	CpuProf  *string
 	MemProf  *string
+	IPFilter *bool
 }
 
 type clientArgs struct {

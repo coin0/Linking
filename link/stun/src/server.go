@@ -45,6 +45,7 @@ func init() {
 	conf.Args.LogNum = flag.Int("lognum", 6, "maximum log file number")
 	conf.Args.CpuProf = flag.String("cpuprof", "cpu.prof", "write cpu profile to file")
 	conf.Args.MemProf = flag.String("memprof", "mem.prof", "write memory profile to file")
+	conf.Args.IPFilter = flag.Bool("ipfilter", false, "block any internal IP access attempt")
 	flag.Var(&conf.Args.Users, "u", "add one user to TURN server")
 	flag.Var(&conf.Args.CertKeys, "c", "add a new cert-key pair")
 

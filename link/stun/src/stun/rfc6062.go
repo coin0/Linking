@@ -149,6 +149,12 @@ func (this *message) doConnectRequest(alloc *allocation) (*message, error) {
 
 	// initiate an outgoing TCP connection to peer
 	// https://datatracker.ietf.org/doc/html/rfc6062#section-5.2
+	code, err := alloc.addPerm(addr)
+	if err != nil {
+		// if the new connection is forbidden by local policy, the server must
+		// reject the request with a 403 error
+		return this.newErrorMessage(code, err.Error()), nil
+	}
 	id, err := alloc.server.connectToPeerTCP(addr)
 	if err != nil {
 		return this.newErrorMessage(STUN_ERR_CONN_TIMEOUT_OR_FAIL, "connection failed: " + err.Error()), nil

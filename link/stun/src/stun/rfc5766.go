@@ -15,6 +15,7 @@ import (
 	"crypto/tls"
 	"sync/atomic"
 	"util/stats"
+	netutil "util/net"
 	"strconv"
 )
 
@@ -459,7 +460,11 @@ func (this *message) doChanBindRequest(alloc *allocation) (*message, error) {
 	}
 
 	// refresh permissions for the peer
-	alloc.addPerm(addr)
+	code, err := alloc.addPerm(addr)
+	if err != nil {
+		// if peer IP is not allowed ther server rejects the request with a 403 error
+		return this.newErrorMessage(code, err.Error()), nil
+	}
 
 	msg := &message{}
 	msg.method = this.method
@@ -546,8 +551,8 @@ func (this *message) doCreatePermRequest(alloc *allocation) (*message, error) {
 		return this.newErrorMessage(STUN_ERR_BAD_REQUEST, "peer addresses: " + err.Error()), nil
 	}
 
-	if err := alloc.addPerms(addrs); err != nil {
-		return this.newErrorMessage(STUN_ERR_INSUFFICIENT_CAP, err.Error()), nil
+	if code, err := alloc.addPerms(addrs); err != nil {
+		return this.newErrorMessage(code, err.Error()), nil
 	}
 
 	msg := &message{}
@@ -1144,7 +1149,7 @@ func (alloc *allocation) getRestLife() (int, error) {
 	}
 }
 
-func (alloc *allocation) addPerms(addrs []*address) (err error) {
+func (alloc *allocation) addPerms(addrs []*address) (code int, err error) {
 
 	err = nil
 	now := time.Now()
@@ -1159,8 +1164,19 @@ func (alloc *allocation) addPerms(addrs []*address) (err error) {
 		}
 	}
 
+	// for security reason, any access attempt for internal addresses should be denied
+	// createChannelData or createPermission should reply error code
+	if (*conf.Args.IPFilter) {
+		for _, addr := range addrs {
+			if netutil.IsInternalIP(addr.IP) {
+				return STUN_ERR_FORBIDDEN, fmt.Errorf("IP access denied")
+			}
+		}
+	}
+
 	// add/refresh permission entry
 	for _, addr := range addrs {
+
 		key := addr.IP.String()
 		if _, ok := alloc.perms[key]; !ok {
 			// check maximum capacity of permissions
@@ -1171,10 +1187,10 @@ func (alloc *allocation) addPerms(addrs []*address) (err error) {
 		alloc.perms[key] = now.Add(time.Second * time.Duration(TURN_PERM_LIFETIME))
 	}
 
-	return err
+	return STUN_ERR_INSUFFICIENT_CAP, err
 }
 
-func (alloc *allocation) addPerm(addr *address) (err error) {
+func (alloc *allocation) addPerm(addr *address) (code int, err error) {
 
 	return alloc.addPerms([]*address{addr})
 }
