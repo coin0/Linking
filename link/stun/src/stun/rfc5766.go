@@ -125,6 +125,7 @@ type turnpool struct {
 
 type relayserver struct {
 	// relay server
+	// this can only be closed in receive routine or on creation error
 	conn        net.Conn
 
 	// connection pool for TCP relays
@@ -1099,12 +1100,15 @@ func (alloc *allocation) save() (int, error) {
 
 	// insert allocation struct to global pool after relayed address is determined
 	if ok := alloc.addToPool(); !ok {
+		// release listeing port of the relay server
+		alloc.server.release()
 		allocPool.freePort(&alloc.relay)
 		return STUN_ERR_BAD_REQUEST, fmt.Errorf("already allocated")
 	}
 
 	// spawn a thread to listen on UDP/TCP
 	if err := alloc.server.spawn(); err != nil {
+		alloc.server.release()
 		allocPool.freePort(&alloc.relay)
 		return STUN_ERR_SERVER_ERROR, err
 	}
@@ -1337,6 +1341,9 @@ func newRelay(alloc *allocation) *relayserver {
 	}
 }
 
+// NOTICE: bind(), release(), spawn(), kill() these server methods using mutex locks must
+//         be called outside any server routine to avoid potential dead lock
+
 func (svr *relayserver) bind() (err error) {
 
 	svr.svrLck.Lock()
@@ -1383,6 +1390,16 @@ func (svr *relayserver) bind() (err error) {
 		return nil
 	}
 	return fmt.Errorf("could not bind local address")
+}
+
+func (svr *relayserver) release() {
+
+	svr.svrLck.Lock()
+	defer svr.svrLck.Unlock()
+
+	if svr.conn != nil {
+		svr.conn.Close()
+	}
 }
 
 // TODO connection needs retry
