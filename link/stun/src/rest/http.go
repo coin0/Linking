@@ -229,7 +229,7 @@ func httpSetProf(w http.ResponseWriter, req *http.Request) {
 		if v[0] != "0" {
 			dbg.StartMemProf(*conf.Args.MemProf)
 		} else {
-			dbg.StopCPUProf()
+			dbg.StopMemProf()
 		}
 		if err != nil {
 			resp += fmt.Sprintf("mem_prof: %s\n", err)
