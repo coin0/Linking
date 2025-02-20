@@ -1431,6 +1431,8 @@ func (svr *relayserver) spawn() error {
 		// poll fds
 		ticker := time.NewTicker(time.Second * TURN_SRV_TICKER_INT)
 		timer := time.NewTimer(time.Second * time.Duration(svr.allocRef.lifetime))
+		defer ticker.Stop()
+		defer timer.Stop()
 		tryRefresh := func() {
 			if seconds, err := svr.allocRef.getRestLife(); err == nil {
 				timer.Stop()
