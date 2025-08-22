@@ -12,6 +12,7 @@ import (
 	"util/reuse"
 	"runtime"
 	"strconv"
+	"util/dbg"
 )
 
 const (
@@ -418,6 +419,15 @@ func handleTCP(tcpConn *net.TCPConn, tlsConf *tls.Config) {
 			for {
 				one, more, decErr = decodeTCP(rest)
 				if decErr != nil { break }
+				if len(one) > len(buf) {
+					Warn("[%s] suspicious data:%s", keygen(addr), dbg.DumpMem(one, 16))
+					if (len(one) > DEFAULT_MTU * 2) {
+						Error("[%s] handleTCP: size %d > %d, drop", keygen(addr), len(one), len(buf))
+						break
+					}
+					Warn("[%s] handleTCP: size %d > %d, expand", keygen(addr), len(one), len(buf))
+					buf = make([]byte, DEFAULT_MTU * 2)
+				}
 
 				// copy decoded data and update rest data slice
 				copy(buf, one)
